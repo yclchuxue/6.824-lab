@@ -1,15 +1,50 @@
 package mr
 
-import "log"
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
+import (
+	"fmt"
+	"io/ioutil"
+	"log"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+)
 
+// type Sym interface{}
 
 type Coordinator struct {
 	// Your definitions here.
+	Infilenames []string
+	Index int
+	// ma Symbol
+	// re Symbol
+}
 
+
+func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
+	reply.Index = c.Index
+	fmt.Println("In Mapf")
+	if c.Index < 8 {
+		fmt.Println("read file")
+		reply.Filename = c.Infilenames[c.Index]
+		file, err := os.Open(reply.Filename)
+		if err != nil {
+			log.Fatalf("cannot open %v", reply.Filename)
+		}
+		
+		content, err := ioutil.ReadAll(file)
+		if err != nil{
+			log.Fatalf("cannot open %v", reply.Filename)
+		}
+
+		file.Close()
+
+		reply.Content = content
+
+		c.Index++
+	}
+	fmt.Println("end of Mapf")
+	return nil
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -31,10 +66,10 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 func (c *Coordinator) server() {
 	rpc.Register(c)
 	rpc.HandleHTTP()
-	//l, e := net.Listen("tcp", ":1234")
+	l, e := net.Listen("tcp", ":9999")
 	sockname := coordinatorSock()
 	os.Remove(sockname)
-	l, e := net.Listen("unix", sockname)
+	//l, e := net.Listen("unix", sockname)
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}
@@ -61,9 +96,11 @@ func (c *Coordinator) Done() bool {
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
-
 	// Your code here.
 
+	//c.ma, c.re = loadPlugin(files[0])
+	c.Infilenames = files
+	c.Index = 1
 
 	c.server()
 	return &c

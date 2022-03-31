@@ -9,7 +9,18 @@ package mr
 import "os"
 import "strconv"
 
+type Symbol interface{}
 
+type Reply struct{
+	Filename string
+	Content []byte
+	Work Symbol
+	Index int
+}
+
+type Args struct{
+	Index int
+}
 //
 // example to show how to declare the arguments
 // and reply for an RPC.
