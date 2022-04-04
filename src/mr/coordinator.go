@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
 )
 
 // type Sym interface{}
@@ -16,17 +17,27 @@ type Coordinator struct {
 	// Your definitions here.
 	Infilenames []string
 	Index int
-	// ma Symbol
-	// re Symbol
+	mux sync.Mutex
+
+	fileopen bool
+
+	cont []byte
+
+	start int
+
+	len   int
 }
 
 
 func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
-	//reply.Index = c.Index
-	fmt.Println("In Mapf", args.Index, "\t", c.Infilenames)
-	if args.Index <= len(c.Infilenames) {
+	c.mux.Lock()
+	reply.Index = c.Index
+	// c.Index++
+	
+	fmt.Println("In Mapf", args.Index, "\t", len(c.Infilenames))
+	if reply.Index < len(c.Infilenames) && !c.fileopen {
 		fmt.Println("read file")
-		reply.Filename = c.Infilenames[0]
+		reply.Filename = c.Infilenames[reply.Index]
 		file, err := os.Open(reply.Filename)
 		if err != nil {
 			log.Fatalf("cannot open %v", reply.Filename)
@@ -38,13 +49,30 @@ func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
 		}
 
 		file.Close()
-
-		reply.Content = content
-		reply.Index = args.Index + 1
-		fmt.Print(content)
+		c.cont = content
+		c.fileopen = true
+		c.len = len(content)
+		//fmt.Print(content)
 	}
-	//c.Index++
+	if c.fileopen {
+		// if c.len - c.start > 1024 {
+		// 	reply.Content = c.cont[c.start : c.start+1024]
+		// 	c.start = c.start+1024
+		// }else{
+		// 	reply.Content = c.cont[c.start : c.len]
+		// 	c.start = c.len
+		// }
+		// if c.start >= c.len {
+		// 	c.fileopen = false
+		// 	c.start = 0
+		// 	c.Index++
+		// }
+		reply.Content = c.cont
+		c.fileopen = false
+	}
+
 	fmt.Println("end of Mapf")
+	c.mux.Unlock()
 	return nil
 }
 
@@ -67,10 +95,10 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 func (c *Coordinator) server() {
 	rpc.Register(c)
 	rpc.HandleHTTP()
-	l, e := net.Listen("tcp", ":9999")
+	//l, e := net.Listen("tcp", ":9999")
 	sockname := coordinatorSock()
 	os.Remove(sockname)
-	//l, e := net.Listen("unix", sockname)
+	l, e := net.Listen("unix", sockname)
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}
@@ -101,7 +129,9 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 
 	//c.ma, c.re = loadPlugin(files[0])
 	c.Infilenames = files
-	c.Index = 1
+	c.Index = 0
+	c.start = 0
+	c.fileopen = false
 
 	c.server()
 	return &c

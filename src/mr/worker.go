@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"sync"
 )
 
 // import "strconv"
@@ -18,10 +19,10 @@ type KeyValue struct {
 	Value string
 }
 
-//
+var wg sync.WaitGroup
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
-//
+
 func ihash(key string) int {
 	h := fnv.New32a()
 	h.Write([]byte(key))
@@ -42,13 +43,10 @@ func mapcall(mapf func(string, string) []KeyValue,
  	ok := call("Coordinator.Mapf", &args, &reply)
 	if ok {
 		fmt.Println(index, "\t", reply.Index)
-		// reply.Y should be 100.
-		fmt.Println(reply.Content)
-		fmt.Println(string(reply.Content))
 
 		kv := mapf(reply.Filename, string(reply.Content))
 	
-		name := fmt.Sprintf("test%d.txt", reply.Index)
+		name := fmt.Sprintf("test_%d.txt", index)
 		
 		newfile,err := os.Create(name)
 				
@@ -65,9 +63,7 @@ func mapcall(mapf func(string, string) []KeyValue,
 	} else {
 		fmt.Printf("call failed!\n")
 	}
-	// if err != nil {
-	// 	log.Fatal("dialing:", err)
-	// }
+	wg.Done()
 	fmt.Println("BBBBBBBBB")
 }
 
@@ -77,11 +73,20 @@ func mapcall(mapf func(string, string) []KeyValue,
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 	
-	//goroutinenum := 8
+	wg.Add(8)
 
-	//for i := 1; i < goroutinenum; i++{
-		go mapcall(mapf, reducef, 1)
-	//}
+	goroutinenum := 8
+
+	for i := 0; i < goroutinenum; i++{
+		go mapcall(mapf, reducef, i)
+	}
+
+	// for i:= 1 ; i > 0 ; i++{
+
+	// }
+
+	wg.Wait()
+	//reducef()
 	// Your worker implementation here.
 
 	// uncomment to send the Example RPC to the coordinator.
@@ -124,9 +129,9 @@ func CallExample() {
 // returns false if something goes wrong.
 //
 func call(rpcname string, args interface{}, reply interface{}) bool {
-	c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":9999")
-	//sockname := coordinatorSock()
-	//c, err := rpc.DialHTTP("unix", sockname)
+	//c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":9999")
+	sockname := coordinatorSock()
+	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
 		log.Fatal("dialing:", err)
 	}
