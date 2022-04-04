@@ -5,7 +5,7 @@ import (
 	"hash/fnv"
 	"log"
 	"net/rpc"
-	// "os"
+	"os"
 )
 
 // import "strconv"
@@ -29,33 +29,39 @@ func ihash(key string) int {
 }
 
 func mapcall(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string){
+	reducef func(string, []string) string, index int){
 
 	args := Args{}
 
-	args.Index = 0
+	args.Index = index
 
 	reply := Reply{}
 
-	fmt.Println("AAAAAAAAA")
+	fmt.Println("AAAAAAAAA", index)
 			
  	ok := call("Coordinator.Mapf", &args, &reply)
 	if ok {
+		fmt.Println(index, "\t", reply.Index)
 		// reply.Y should be 100.
+		fmt.Println(reply.Content)
+		fmt.Println(string(reply.Content))
+
 		kv := mapf(reply.Filename, string(reply.Content))
 	
-		// name := fmt.Sprintf("test%d.txt", reply.Index)
+		name := fmt.Sprintf("test%d.txt", reply.Index)
 		
-		// newfile,_ := os.Create(name)
+		newfile,err := os.Create(name)
 				
-		// if err != nil {
-		// 	log.Fatalf("cannot creat file %v", name)
-		// }
-		fmt.Println(len(kv))
-		for i:=0 ; i < len(kv); i++ {
-			// fmt.Fprintf(newfile, "%v %v\n", kv[i].Key, kv[i].Value)
-			fmt.Println(kv[i].Key, "\n" , kv[i].Value)
+		if err != nil {
+			log.Fatalf("cannot creat file %v", name)
 		}
+		fmt.Println("len(kv) = ", len(kv))
+		for i:=0 ; i < len(kv); i++ {
+			fmt.Fprintf(newfile, "%v %v\n", kv[i].Key, kv[i].Value)
+			//fmt.Println(kv[i].Key, "\n" , kv[i].Value)
+		}
+
+		newfile.Close()
 	} else {
 		fmt.Printf("call failed!\n")
 	}
@@ -63,9 +69,6 @@ func mapcall(mapf func(string, string) []KeyValue,
 	// 	log.Fatal("dialing:", err)
 	// }
 	fmt.Println("BBBBBBBBB")
-	
-	
-	// newfile.Close()
 }
 
 //
@@ -74,11 +77,11 @@ func mapcall(mapf func(string, string) []KeyValue,
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 	
-	goroutinenum := 10
+	//goroutinenum := 8
 
-	for i := 1; i < goroutinenum; i++{
-		go mapcall(mapf, reducef)
-	}
+	//for i := 1; i < goroutinenum; i++{
+		go mapcall(mapf, reducef, 1)
+	//}
 	// Your worker implementation here.
 
 	// uncomment to send the Example RPC to the coordinator.

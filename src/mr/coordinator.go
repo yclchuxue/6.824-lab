@@ -22,11 +22,11 @@ type Coordinator struct {
 
 
 func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
-	reply.Index = c.Index
-	fmt.Println("In Mapf")
-	if c.Index < 8 {
+	//reply.Index = c.Index
+	fmt.Println("In Mapf", args.Index, "\t", c.Infilenames)
+	if args.Index <= len(c.Infilenames) {
 		fmt.Println("read file")
-		reply.Filename = c.Infilenames[c.Index]
+		reply.Filename = c.Infilenames[0]
 		file, err := os.Open(reply.Filename)
 		if err != nil {
 			log.Fatalf("cannot open %v", reply.Filename)
@@ -40,9 +40,10 @@ func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
 		file.Close()
 
 		reply.Content = content
-
-		c.Index++
+		reply.Index = args.Index + 1
+		fmt.Print(content)
 	}
+	//c.Index++
 	fmt.Println("end of Mapf")
 	return nil
 }
