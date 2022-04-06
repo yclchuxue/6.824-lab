@@ -1,11 +1,14 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	//"io"
 	"log"
 	"net/rpc"
 	"os"
+	"sort"
 	"sync"
 )
 
@@ -19,7 +22,14 @@ type KeyValue struct {
 	Value string
 }
 
+type ByKey []KeyValue
+
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
+
 var wg sync.WaitGroup
+
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
 
@@ -30,7 +40,7 @@ func ihash(key string) int {
 }
 
 func mapcall(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string, index int){
+	reducef func(string, []string) string, index int) {
 
 	args := Args{}
 
@@ -38,33 +48,124 @@ func mapcall(mapf func(string, string) []KeyValue,
 
 	reply := Reply{}
 
-	fmt.Println("AAAAAAAAA", index)
-			
- 	ok := call("Coordinator.Mapf", &args, &reply)
+	ok := call("Coordinator.Mapf", &args, &reply)
 	if ok {
-		fmt.Println(index, "\t", reply.Index)
+		//fmt.Println(index, "\t", reply.Index)
 
 		kv := mapf(reply.Filename, string(reply.Content))
-	
-		name := fmt.Sprintf("test_%d.txt", index)
-		
-		newfile,err := os.Create(name)
-				
-		if err != nil {
-			log.Fatalf("cannot creat file %v", name)
-		}
-		fmt.Println("len(kv) = ", len(kv))
-		for i:=0 ; i < len(kv); i++ {
-			fmt.Fprintf(newfile, "%v %v\n", kv[i].Key, kv[i].Value)
+
+		//fmt.Println("len(kv) = ", len(kv))
+		for i := 0; i < len(kv); i++ {
+			x := ihash(kv[i].Key) % 10
+			name := fmt.Sprintf("mr-%d%d.txt",index, x)
+
+			newfile, err := os.OpenFile(name, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0666)
+			if err != nil {
+				log.Fatal(err)
+			}
+			enc := json.NewEncoder(newfile)
+
+			err = enc.Encode(&kv[i])
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			newfile.Close()
+			//fmt.Fprintf(opfiles[x], "%v %v\n", kv[i].Key, kv[i].Value)
 			//fmt.Println(kv[i].Key, "\n" , kv[i].Value)
 		}
 
-		newfile.Close()
 	} else {
 		fmt.Printf("call failed!\n")
 	}
 	wg.Done()
-	fmt.Println("BBBBBBBBB")
+}
+
+func reducecall(mapf func(string, string) []KeyValue,
+	reducef func(string, []string) string, index int) {
+	args := Args{}
+
+	args.Index = index
+
+	reply := Reply{}
+
+	ok := call("Coordinator.Reducef", &args, &reply)
+	if ok {
+		mediate := []KeyValue{}
+		for _,name := range reply.Filenames {
+			file, err := os.OpenFile(name, os.O_RDWR, 0666)
+			if err != nil {
+				fmt.Println("open file failed!")
+			}
+			x := 0
+			dec := json.NewDecoder(file)
+			for {
+				var kv KeyValue
+				if err := dec.Decode(&kv); err != nil {
+					break
+				}
+				x++
+				mediate = append(mediate, kv)
+			}
+			fmt.Println(x)
+			x = 0
+			file.Close()
+		}
+
+		sort.Sort(ByKey(mediate))
+
+		//kvone := KeyValue{}
+		// name := fmt.Sprintf("mr-X%d.txt", index)
+		// fmt.Println(name)
+		// file, err := os.OpenFile(reply.Filename, os.O_RDWR, 0666)
+		// if err != nil {
+		// 	fmt.Println("open file failed!")
+		// }
+		// x := 0
+		// dec := json.NewDecoder(file)
+		// for {
+		// 	var kv KeyValue
+		// 	if err := dec.Decode(&kv); err != nil {
+		// 		break
+		// 	}
+		// 	//ret, err := fmt.Fscanln(file, &kvone.Key, &kvone.Value)
+		// 	//fmt.Println(ret)
+		// 	// if err == io.EOF || ret == 0 {
+		// 	// 	break
+		// 	// }
+		// 	x++
+		// 	mediate = append(mediate, kv)
+		// }
+		
+		filename := fmt.Sprintf("mr-out-%d.txt", index)
+
+		newfile,err := os.OpenFile(filename, os.O_CREATE | os.O_RDWR, 0666)
+		if err != nil {
+			fmt.Println("open file failed!")
+		}
+
+		i := 0
+		for i < len(mediate) {
+			j := i + 1
+			for j < len(mediate) && mediate[j].Key == mediate[i].Key {
+				j++
+			}
+			values := []string{}
+			for k := i; k < j; k++ {
+				values = append(values, mediate[k].Value)
+			}
+			output := reducef(mediate[i].Key, values)
+
+			// this is the correct format for each line of Reduce output.
+			fmt.Fprintf(newfile, "%v %v\n", mediate[i].Key, output)
+
+			i = j
+		}
+		newfile.Close()
+	}else{
+		fmt.Printf("call failed!\n")
+	}
+	wg.Done()
 }
 
 //
@@ -72,26 +173,104 @@ func mapcall(mapf func(string, string) []KeyValue,
 //
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
-	
+
 	wg.Add(8)
 
 	goroutinenum := 8
 
-	for i := 0; i < goroutinenum; i++{
+	for i := 0; i < goroutinenum; i++ {
 		go mapcall(mapf, reducef, i)
 	}
+	wg.Wait()
 
-	// for i:= 1 ; i > 0 ; i++{
+	// for i := 0; i < 10; i++ {
+	// 	mediate := []KeyValue{}
+	// 	//kvone := KeyValue{}
+	// 	name := fmt.Sprintf("mr-X%d.txt", i)
+	// 	fmt.Println(name)
+	// 	file, err := os.OpenFile(name, os.O_RDWR, 0666)
+	// 	if err != nil {
+	// 		fmt.Println("open file failed!")
+	// 	}
+	// 	x := 0
+	// 	dec := json.NewDecoder(file)
+	// 	for {
+	// 		var kv KeyValue
+	// 		if err := dec.Decode(&kv); err != nil {
+	// 			break
+	// 		}
+	// 		//ret, err := fmt.Fscanln(file, &kvone.Key, &kvone.Value)
+	// 		//fmt.Println(ret)
+	// 		// if err == io.EOF || ret == 0 {
+	// 		// 	break
+	// 		// }
+	// 		x++
+	// 		mediate = append(mediate, kv)
+	// 	}
+	// 	fmt.Println(x)
+	// 	x = 0
+	// 	file.Close()
+	// 	sort.Sort(ByKey(mediate))
 
+	// 	file, err = os.OpenFile(name, os.O_RDWR, 0666)
+	// 	enc := json.NewEncoder(file)
+	// 	for i := 0; i < len(mediate); i++ {
+	// 		err := enc.Encode(&mediate[i])
+	// 		if err != nil {
+	// 			log.Fatal(err)
+	// 		}
+	// 	}
+	// 	file.Close()
 	// }
 
+	wg.Add(10)
+
+	goroutinenum = 10
+
+	for i := 0; i < goroutinenum; i++ {
+		go reducecall(mapf, reducef, i)
+	}
 	wg.Wait()
-	//reducef()
-	// Your worker implementation here.
 
-	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
+	/*
+		// values := []string{}
+		// for i := 0; i < len(mediate); i++ {
 
+		// }
+		fmt.Println("before creat")
+
+		oname := "mr-out-0"
+		ofile, _ := os.Create(oname)
+
+		//
+		// call Reduce on each distinct key in intermediate[],
+		// and print the result to mr-out-0.
+		//
+		i := 0
+		for i < len(mediate) {
+			j := i + 1
+			for j < len(mediate) && mediate[j].Key == mediate[i].Key {
+				j++
+			}
+			values := []string{}
+			for k := i; k < j; k++ {
+				values = append(values, mediate[k].Value)
+			}
+			output := reducef(mediate[i].Key, values)
+
+			// this is the correct format for each line of Reduce output.
+			fmt.Fprintf(ofile, "%v %v\n", mediate[i].Key, output)
+
+			i = j
+		}
+
+		ofile.Close()
+		//reducef()
+		// Your worker implementation here.
+
+		// uncomment to send the Example RPC to the coordinator.
+		// CallExample()
+	*/
 }
 
 //

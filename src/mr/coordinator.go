@@ -28,15 +28,25 @@ type Coordinator struct {
 	len   int
 }
 
+func (c *Coordinator) Reducef(args *Args, reply *Reply) error {
+	//reply.Filename
+	
+	for i:=0; i < 8 ; i++ {
+		reply.Filenames = append(reply.Filenames, fmt.Sprintf("mr-%d%d.txt", i, args.Index))
+	}
+
+	return nil
+}
+
 
 func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
 	c.mux.Lock()
 	reply.Index = c.Index
 	// c.Index++
 	
-	fmt.Println("In Mapf", args.Index, "\t", len(c.Infilenames))
-	if reply.Index < len(c.Infilenames) && !c.fileopen {
-		fmt.Println("read file")
+	//fmt.Println("In Mapf", args.Index, "\t", len(c.Infilenames))
+	if reply.Index < len(c.Infilenames) {//&& !c.fileopen {
+	//	fmt.Println("read file", c.Infilenames[reply.Index])
 		reply.Filename = c.Infilenames[reply.Index]
 		file, err := os.Open(reply.Filename)
 		if err != nil {
@@ -50,11 +60,12 @@ func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
 
 		file.Close()
 		c.cont = content
-		c.fileopen = true
+		//c.fileopen = true
 		c.len = len(content)
+		reply.Content = c.cont
 		//fmt.Print(content)
 	}
-	if c.fileopen {
+	//if c.fileopen {
 		// if c.len - c.start > 1024 {
 		// 	reply.Content = c.cont[c.start : c.start+1024]
 		// 	c.start = c.start+1024
@@ -67,11 +78,12 @@ func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
 		// 	c.start = 0
 		// 	c.Index++
 		// }
-		reply.Content = c.cont
-		c.fileopen = false
-	}
-
-	fmt.Println("end of Mapf")
+	// 	reply.Content = c.cont
+	// 	c.cont = c.cont[:0]
+	// 	c.fileopen = false
+	// }
+	c.Index++
+	//fmt.Println("end of Mapf")
 	c.mux.Unlock()
 	return nil
 }

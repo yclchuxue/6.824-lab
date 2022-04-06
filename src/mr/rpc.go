@@ -15,6 +15,7 @@ type Reply struct{
 	Filename string
 	Content []byte
 	Work Symbol
+	Filenames []string
 	Index int
 }
 
