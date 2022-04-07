@@ -102,6 +102,8 @@ wait
 
 #########################################################
 # now indexer
+sleep 100
+
 rm -f mr-*
 
 # generate the correct output

@@ -21,6 +21,9 @@ type Reply struct{
 
 type Args struct{
 	Index int
+	File int
+	Done bool
+	work string
 }
 //
 // example to show how to declare the arguments

@@ -39,6 +39,24 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
+func taskcall(mapf func(string, string) []KeyValue,
+reducef func(string, []string) string, index int) {
+	args := Args{}
+
+	args.Index = index
+
+	args.Done = false
+
+	reply := Reply{}
+
+	ok := call("Coordinator.Task", &args, &reply)
+	if ok {
+		
+	}else{
+		log.Fatalf("call failed!")
+	}
+}
+
 func mapcall(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string, index int) {
 
@@ -46,11 +64,15 @@ func mapcall(mapf func(string, string) []KeyValue,
 
 	args.Index = index
 
+	args.Done = false
+
 	reply := Reply{}
 
 	ok := call("Coordinator.Mapf", &args, &reply)
 	if ok {
-		//fmt.Println(index, "\t", reply.Index)
+		fmt.Println(index, "\t", reply.Index)
+
+		args.File = reply.Index
 
 		kv := mapf(reply.Filename, string(reply.Content))
 
@@ -74,6 +96,11 @@ func mapcall(mapf func(string, string) []KeyValue,
 			//fmt.Fprintf(opfiles[x], "%v %v\n", kv[i].Key, kv[i].Value)
 			//fmt.Println(kv[i].Key, "\n" , kv[i].Value)
 		}
+		args.Done = true
+		ok = call("Coordinator.Mapf", &args, &reply)
+		if !ok {
+			fmt.Printf("call done failed\n")
+		}
 
 	} else {
 		fmt.Printf("call failed!\n")
@@ -87,10 +114,13 @@ func reducecall(mapf func(string, string) []KeyValue,
 
 	args.Index = index
 
+	args.Done = false
+
 	reply := Reply{}
 
 	ok := call("Coordinator.Reducef", &args, &reply)
 	if ok {
+		args.File = reply.Index
 		mediate := []KeyValue{}
 		for _,name := range reply.Filenames {
 			file, err := os.OpenFile(name, os.O_RDWR, 0666)
@@ -114,28 +144,6 @@ func reducecall(mapf func(string, string) []KeyValue,
 
 		sort.Sort(ByKey(mediate))
 
-		//kvone := KeyValue{}
-		// name := fmt.Sprintf("mr-X%d.txt", index)
-		// fmt.Println(name)
-		// file, err := os.OpenFile(reply.Filename, os.O_RDWR, 0666)
-		// if err != nil {
-		// 	fmt.Println("open file failed!")
-		// }
-		// x := 0
-		// dec := json.NewDecoder(file)
-		// for {
-		// 	var kv KeyValue
-		// 	if err := dec.Decode(&kv); err != nil {
-		// 		break
-		// 	}
-		// 	//ret, err := fmt.Fscanln(file, &kvone.Key, &kvone.Value)
-		// 	//fmt.Println(ret)
-		// 	// if err == io.EOF || ret == 0 {
-		// 	// 	break
-		// 	// }
-		// 	x++
-		// 	mediate = append(mediate, kv)
-		// }
 		
 		filename := fmt.Sprintf("mr-out-%d.txt", index)
 
@@ -162,6 +170,11 @@ func reducecall(mapf func(string, string) []KeyValue,
 			i = j
 		}
 		newfile.Close()
+		args.Done = true
+		ok = call("Coordinator.Reducef", &args, &reply)
+		if !ok {
+			fmt.Printf("call done failed\n")
+		}
 	}else{
 		fmt.Printf("call failed!\n")
 	}
@@ -183,45 +196,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	}
 	wg.Wait()
 
-	// for i := 0; i < 10; i++ {
-	// 	mediate := []KeyValue{}
-	// 	//kvone := KeyValue{}
-	// 	name := fmt.Sprintf("mr-X%d.txt", i)
-	// 	fmt.Println(name)
-	// 	file, err := os.OpenFile(name, os.O_RDWR, 0666)
-	// 	if err != nil {
-	// 		fmt.Println("open file failed!")
-	// 	}
-	// 	x := 0
-	// 	dec := json.NewDecoder(file)
-	// 	for {
-	// 		var kv KeyValue
-	// 		if err := dec.Decode(&kv); err != nil {
-	// 			break
-	// 		}
-	// 		//ret, err := fmt.Fscanln(file, &kvone.Key, &kvone.Value)
-	// 		//fmt.Println(ret)
-	// 		// if err == io.EOF || ret == 0 {
-	// 		// 	break
-	// 		// }
-	// 		x++
-	// 		mediate = append(mediate, kv)
-	// 	}
-	// 	fmt.Println(x)
-	// 	x = 0
-	// 	file.Close()
-	// 	sort.Sort(ByKey(mediate))
 
-	// 	file, err = os.OpenFile(name, os.O_RDWR, 0666)
-	// 	enc := json.NewEncoder(file)
-	// 	for i := 0; i < len(mediate); i++ {
-	// 		err := enc.Encode(&mediate[i])
-	// 		if err != nil {
-	// 			log.Fatal(err)
-	// 		}
-	// 	}
-	// 	file.Close()
-	// }
 
 	wg.Add(10)
 
@@ -230,47 +205,15 @@ func Worker(mapf func(string, string) []KeyValue,
 	for i := 0; i < goroutinenum; i++ {
 		go reducecall(mapf, reducef, i)
 	}
+
 	wg.Wait()
 
-	/*
-		// values := []string{}
-		// for i := 0; i < len(mediate); i++ {
 
-		// }
-		fmt.Println("before creat")
-
-		oname := "mr-out-0"
-		ofile, _ := os.Create(oname)
-
-		//
-		// call Reduce on each distinct key in intermediate[],
-		// and print the result to mr-out-0.
-		//
-		i := 0
-		for i < len(mediate) {
-			j := i + 1
-			for j < len(mediate) && mediate[j].Key == mediate[i].Key {
-				j++
-			}
-			values := []string{}
-			for k := i; k < j; k++ {
-				values = append(values, mediate[k].Value)
-			}
-			output := reducef(mediate[i].Key, values)
-
-			// this is the correct format for each line of Reduce output.
-			fmt.Fprintf(ofile, "%v %v\n", mediate[i].Key, output)
-
-			i = j
-		}
-
-		ofile.Close()
 		//reducef()
 		// Your worker implementation here.
 
 		// uncomment to send the Example RPC to the coordinator.
 		// CallExample()
-	*/
 }
 
 //

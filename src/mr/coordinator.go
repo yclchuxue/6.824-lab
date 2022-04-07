@@ -17,42 +17,74 @@ type Coordinator struct {
 	// Your definitions here.
 	Infilenames []string
 	Index int
+	filished map[int]int
 	mux sync.Mutex
-
+	cond *sync.Cond
+	conditioon bool
+	mapover bool
+	reduceover bool
 	fileopen bool
-
 	cont []byte
-
 	start int
-
-	len   int
+	time  int
 }
 
-func (c *Coordinator) Reducef(args *Args, reply *Reply) error {
-	//reply.Filename
-	
-	for i:=0; i < 8 ; i++ {
-		reply.Filenames = append(reply.Filenames, fmt.Sprintf("mr-%d%d.txt", i, args.Index))
+func (c *Coordinator) Task(args *Args, reply *Reply) error {
+	if args.work == "map" {
+		c.Mapf(args, reply)
+	}else{
+		c.Reducef(args, reply)
 	}
 
 	return nil
 }
 
+func (c *Coordinator) Reducef(args *Args, reply *Reply) error {
+	//reply.Filename
+	c.cond.L.Lock()
+	if args.Done {
+		c.filished[args.File] = -1       //filished
+		fmt.Println(args.Index)
+	}else{
+		for i:=0; i < 8 ; i++ {
+			reply.Index = i
+			reply.Filenames = append(reply.Filenames, fmt.Sprintf("mr-%d%d.txt", i, args.Index))
+		}
+	}
+	c.cond.L.Unlock()
+	return nil
+}
+
 
 func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
-	c.mux.Lock()
-	reply.Index = c.Index
-	// c.Index++
-	
-	//fmt.Println("In Mapf", args.Index, "\t", len(c.Infilenames))
-	if reply.Index < len(c.Infilenames) {//&& !c.fileopen {
-	//	fmt.Println("read file", c.Infilenames[reply.Index])
-		reply.Filename = c.Infilenames[reply.Index]
+	c.cond.L.Lock()
+	//c.mux.Lock()
+	//c.conditioon = true
+	if args.Done {
+		c.filished[args.File] = -1       //filished
+		fmt.Println(args.Index)
+	}else{
+		reply.Index = c.Index
+		// c.Index++
+		c.filished[c.Index] = args.Index
+		
+		fmt.Println("In Mapf", args.Index, "\t", len(c.Infilenames))
+		if reply.Index < len(c.Infilenames) {
+			reply.Filename = c.Infilenames[reply.Index]
+			c.Index++
+		}//else{  //多余的mapf等待任务
+		// 	for !c.conditioon {
+				// c.cond.Wait()
+				// reply.Index = c.Index
+				// reply.Filename = c.Infilenames[reply.Index]
+		// 	}
+		//  }
+		
 		file, err := os.Open(reply.Filename)
 		if err != nil {
 			log.Fatalf("cannot open %v", reply.Filename)
 		}
-		
+			
 		content, err := ioutil.ReadAll(file)
 		if err != nil{
 			log.Fatalf("cannot open %v", reply.Filename)
@@ -60,31 +92,13 @@ func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
 
 		file.Close()
 		c.cont = content
-		//c.fileopen = true
-		c.len = len(content)
 		reply.Content = c.cont
-		//fmt.Print(content)
+		
+		//fmt.Println("end of Mapf")
 	}
-	//if c.fileopen {
-		// if c.len - c.start > 1024 {
-		// 	reply.Content = c.cont[c.start : c.start+1024]
-		// 	c.start = c.start+1024
-		// }else{
-		// 	reply.Content = c.cont[c.start : c.len]
-		// 	c.start = c.len
-		// }
-		// if c.start >= c.len {
-		// 	c.fileopen = false
-		// 	c.start = 0
-		// 	c.Index++
-		// }
-	// 	reply.Content = c.cont
-	// 	c.cont = c.cont[:0]
-	// 	c.fileopen = false
-	// }
-	c.Index++
-	//fmt.Println("end of Mapf")
-	c.mux.Unlock()
+	//c.conditioon = false
+	c.cond.L.Unlock()
+	//c.mux.Unlock()
 	return nil
 }
 
@@ -122,10 +136,61 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := false
+	ret := true
 
 	// Your code here.
-
+	c.time--
+	if !c.mapover {
+		if c.time < 0 {
+			for i,_ := range c.Infilenames {
+				if c.filished[i] != -1 {
+					c.cond.L.Lock()
+					c.conditioon = true
+					c.Index = i          //file i failed
+					c.cond.Signal()
+					c.cond.L.Unlock()
+				}
+			}
+		}
+		c.cond.L.Lock()
+		for i,_ := range c.Infilenames {
+			if c.filished[i] != -1 {
+				ret = false
+			}
+		}
+		if ret {
+			c.mapover = true
+			ret = false
+			for i,_ := range c.Infilenames {
+				c.filished[i] = -2
+			}
+		}
+		c.cond.L.Unlock()
+	}
+	if !c.reduceover {
+		// if c.time < 0 {
+		// 	for i,_ := range c.Infilenames {
+		// 		if c.filished[i] != -1 {
+		// 			c.cond.L.Lock()
+		// 			c.conditioon = true
+		// 			c.Index = i          //file i failed
+		// 			c.cond.Signal()
+		// 			c.cond.L.Unlock()
+		// 		}
+		// 	}
+		// }
+		ret = true
+		c.cond.L.Lock()
+		for i,_ := range c.Infilenames {
+			if c.filished[i] != -1 {
+				ret = false
+			}
+		}
+		if ret {
+			c.reduceover = true
+		}
+		c.cond.L.Unlock()
+	}
 
 	return ret
 }
@@ -139,11 +204,16 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 	// Your code here.
 
-	//c.ma, c.re = loadPlugin(files[0])
+	c.cond = sync.NewCond(&c.mux)
 	c.Infilenames = files
 	c.Index = 0
 	c.start = 0
 	c.fileopen = false
+	c.time = 100
+	c.filished = make(map[int]int)
+	for i,_ := range files{
+		c.filished[i] = -2
+	}
 
 	c.server()
 	return &c
