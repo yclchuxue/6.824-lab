@@ -9,6 +9,7 @@ import (
 	"net/rpc"
 	"os"
 	"sync"
+	// "time"
 )
 
 // type Sym interface{}
@@ -16,24 +17,36 @@ import (
 type Coordinator struct {
 	// Your definitions here.
 	Infilenames []string
+	Indexfiles 	[]int
 	Index int
-	filished map[int]int
+	mfilished map[int]int
+	rfilished map[int]int
 	mux sync.Mutex
 	cond *sync.Cond
 	conditioon bool
-	mapover bool
-	reduceover bool
+
+	Intermediate_index []int
+
 	fileopen bool
 	cont []byte
-	start int
+	renum int
+	manum int
 	time  int
+
+	mapfilish bool
+	reducefilish bool
 }
 
 func (c *Coordinator) Task(args *Args, reply *Reply) error {
-	if args.work == "map" {
+	if !c.mapfilish {
+		reply.Work = "other"
+		reply.Index = 0
 		c.Mapf(args, reply)
-	}else{
+	}else if !c.reducefilish {
 		c.Reducef(args, reply)
+	}else{
+		work := "break"
+		reply.Work = work
 	}
 
 	return nil
@@ -43,42 +56,100 @@ func (c *Coordinator) Reducef(args *Args, reply *Reply) error {
 	//reply.Filename
 	c.cond.L.Lock()
 	if args.Done {
-		c.filished[args.File] = -1       //filished
-		fmt.Println(args.Index)
+		c.rfilished[args.File] = 0       //filished
+		//fmt.Println(args.Index)
 	}else{
-		for i:=0; i < 8 ; i++ {
-			reply.Index = i
-			reply.Filenames = append(reply.Filenames, fmt.Sprintf("mr-%d%d.txt", i, args.Index))
+		reply.Index = c.renum
+		//fmt.Println(len(c.Intermediate_index))
+		if reply.Index < 10 && c.rfilished[reply.Index] == -1{
+			for _,i := range c.Intermediate_index {
+				name := fmt.Sprintf("mr-%d%d.txt", i, c.renum)
+				reply.Filenames = append(reply.Filenames, name)
+				//fmt.Println("name = ", name)
+			}
+			c.renum++
+			c.rfilished[reply.Index] = 1
+			work := "reduce"
+			reply.Work = work
+		}else{
+			c.cond.Wait()
+			if c.renum == -1 {
+				work := "other"
+				reply.Work = work
+			}
+			if c.rfilished[c.renum] == -1 {
+				reply.Index = c.renum
+				for i := range c.Intermediate_index {
+					reply.Filenames = append(reply.Filenames, fmt.Sprintf("mr-%d%d.txt", i, c.renum))
+				}
+				c.rfilished[reply.Index] = 1
+				work := "reduce"
+				reply.Work = work
+			}
 		}
 	}
+	
 	c.cond.L.Unlock()
 	return nil
 }
 
 
 func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
+	
 	c.cond.L.Lock()
-	//c.mux.Lock()
 	//c.conditioon = true
 	if args.Done {
-		c.filished[args.File] = -1       //filished
-		fmt.Println(args.Index)
+		//fmt.Println("aaa = ",  args.File)
+		c.mfilished[args.File] = 0       //filished
+
+		c.Intermediate_index = append(c.Intermediate_index, args.Index)
+		//fmt.Println("args.index = ", args.Index)
 	}else{
-		reply.Index = c.Index
-		// c.Index++
-		c.filished[c.Index] = args.Index
-		
-		fmt.Println("In Mapf", args.Index, "\t", len(c.Infilenames))
-		if reply.Index < len(c.Infilenames) {
-			reply.Filename = c.Infilenames[reply.Index]
-			c.Index++
-		}//else{  //多余的mapf等待任务
+		reply.MapIndex = c.manum
+		c.manum++
+		ice := 0
+		for it,_ := range c.Infilenames {
+			//fmt.Println("num = ", c.Indexfiles[it], "index = ", it)
+			if c.Indexfiles[it] == 1 {
+				reply.Index = it
+				//fmt.Println("re.index = ", reply.Index, "\t", it)
+				reply.Filename = c.Infilenames[it]
+				c.Indexfiles[it] = 0
+				c.mfilished[it] = 1
+				//fmt.Println("num1 = ", c.Infilenames[it])
+				ice = 1
+				break
+			}
+		}
+		if ice == 1 {
+			reply.Work = "map"
+		}else{  //多余的mapf等待任务
 		// 	for !c.conditioon {
-				// c.cond.Wait()
-				// reply.Index = c.Index
-				// reply.Filename = c.Infilenames[reply.Index]
+		 		c.cond.Wait()
+				//fmt.Println("被唤醒")
+				ice = 0
+				for it,_ := range c.Infilenames {
+					if c.Indexfiles[it] == 1 && it == c.Index{
+						reply.Index = it
+						reply.Filename = c.Infilenames[it]
+						c.Indexfiles[it] = 0
+						c.mfilished[it] = 1
+						ice = 1
+						break
+					}
+				}
+				if ice == 1{
+					reply.Work = "map"
+				}else{
+					work := "other"
+					reply.Work = work
+					
+					c.cond.L.Unlock()
+					return nil
+				}
+				//fmt.Println(reply.Work)
 		// 	}
-		//  }
+		}
 		
 		file, err := os.Open(reply.Filename)
 		if err != nil {
@@ -93,7 +164,7 @@ func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
 		file.Close()
 		c.cont = content
 		reply.Content = c.cont
-		
+		// time.Sleep(time.Second * 4)
 		//fmt.Println("end of Mapf")
 	}
 	//c.conditioon = false
@@ -140,54 +211,71 @@ func (c *Coordinator) Done() bool {
 
 	// Your code here.
 	c.time--
-	if !c.mapover {
+	if !c.mapfilish {
 		if c.time < 0 {
-			for i,_ := range c.Infilenames {
-				if c.filished[i] != -1 {
+			// fmt.Println("time < 0")
+			for it,_ := range c.Infilenames {
+				if c.mfilished[it] != 0 {
 					c.cond.L.Lock()
-					c.conditioon = true
-					c.Index = i          //file i failed
+					//c.conditioon = true
+					c.mfilished[it] = -1
+					c.Index = it          //file i failed
+					c.Indexfiles[it] = 1
+					c.time = 30
 					c.cond.Signal()
 					c.cond.L.Unlock()
 				}
 			}
 		}
+
 		c.cond.L.Lock()
-		for i,_ := range c.Infilenames {
-			if c.filished[i] != -1 {
+		index := 0
+		for it,_ := range c.Infilenames {
+			if c.mfilished[it] != 0{
 				ret = false
 			}
+			//c.Infilenames[it] = num
+			//fmt.Println( it, "\tindex = ", index)
+			index++
+
 		}
 		if ret {
-			c.mapover = true
+			//fmt.Println("AAAAA")
+			c.mapfilish = true
 			ret = false
-			for i,_ := range c.Infilenames {
-				c.filished[i] = -2
-			}
+			c.Index = 0
+			c.cond.Broadcast()
+			// for it,_ := range c.Infilenames {
+			// 	c.Infilenames[it] = 1
+			// }
 		}
 		c.cond.L.Unlock()
 	}
-	if !c.reduceover {
-		// if c.time < 0 {
-		// 	for i,_ := range c.Infilenames {
-		// 		if c.filished[i] != -1 {
-		// 			c.cond.L.Lock()
-		// 			c.conditioon = true
-		// 			c.Index = i          //file i failed
-		// 			c.cond.Signal()
-		// 			c.cond.L.Unlock()
-		// 		}
-		// 	}
-		// }
+	if !c.reducefilish {
+		if c.time < 0 {
+			for i:= 0; i< 10; i++ {
+				if c.rfilished[i] != 0 {
+					c.cond.L.Lock()
+					//c.conditioon = true
+					c.Index = i          //file i failed
+					c.rfilished[i] = -1
+					c.time = 30
+					c.cond.Signal()
+					c.cond.L.Unlock()
+				}
+			}
+		}
 		ret = true
 		c.cond.L.Lock()
-		for i,_ := range c.Infilenames {
-			if c.filished[i] != -1 {
+		for i:= 0; i < 10; i++ {
+			if c.rfilished[i] != 0 {
 				ret = false
 			}
 		}
 		if ret {
-			c.reduceover = true
+			c.reducefilish = true
+			c.renum = -1
+			c.cond.Broadcast()
 		}
 		c.cond.L.Unlock()
 	}
@@ -205,16 +293,31 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// Your code here.
 
 	c.cond = sync.NewCond(&c.mux)
-	c.Infilenames = files
 	c.Index = 0
-	c.start = 0
+	c.renum = 0
+	c.manum = 0
 	c.fileopen = false
-	c.time = 100
-	c.filished = make(map[int]int)
-	for i,_ := range files{
-		c.filished[i] = -2
+	c.time = 30
+	c.mfilished = make(map[int]int)
+	c.rfilished = make(map[int]int)
+	c.mapfilish = false
+	c.reducefilish = false
+
+	c.Infilenames = files
+
+	for i,_ :=range c.Infilenames {
+		c.Indexfiles = append(c.Indexfiles, 1)
+		c.Indexfiles[i] = 1
 	}
 
+	for i,_ := range files{
+		c.mfilished[i] = -1    //未被分配
+	}
+
+	for j:=0; j<10 ;j++ {
+		c.rfilished[j] = -1
+	} 
+	//fmt.Println("VVV\t", c.filished[5])
 	c.server()
 	return &c
 }

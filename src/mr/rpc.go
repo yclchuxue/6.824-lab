@@ -12,18 +12,19 @@ import "strconv"
 type Symbol interface{}
 
 type Reply struct{
-	Filename string
-	Content []byte
-	Work Symbol
-	Filenames []string
-	Index int
+	Filename string		//被分配文件名
+	Content []byte		//文件内容
+	Filenames []string	
+	MapIndex int
+	Index int			//文件序号
+	Work string			//工作类型
 }
 
 type Args struct{
-	Index int
-	File int
-	Done bool
-	work string
+	Index int       //map序号
+	File int	   	//被分配文件序号
+	Done bool		//是否完成
+	Work string		//工作类型
 }
 //
 // example to show how to declare the arguments
