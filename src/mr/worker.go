@@ -44,7 +44,7 @@ func ihash(key string) int {
 
 
 func Map(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string, args Args, reply Reply) error {
+	reducef func(string, []string) string, args Args, reply Reply) {
 
 
 		args.File = reply.Index
@@ -77,25 +77,27 @@ func Map(mapf func(string, string) []KeyValue,
 		args.Done = true
 		ok := call("Coordinator.Mapf", &args, &reply)
 		if !ok {
-			fmt.Printf("call done failed\n")
-			return nil
+			fmt.Printf("4 call done failed\n")
+			//return nil
 		}
 
-		return nil
+		//return nil
 }
 
 func Reduce(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string,args Args, reply Reply) error {
+	reducef func(string, []string) string,args Args, reply Reply) {
 
 		args.File = reply.Index
+		args.Index = reply.Index
 		//fmt.Println("a = ", args.File)
 		mediate := []KeyValue{}
 		for _,name := range reply.Filenames {
 			// fmt.Println(name)
-			file, err := os.OpenFile(name, os.O_RDWR, 0666)
+			file, err := os.OpenFile(name,os.O_CREATE | os.O_RDWR, 0666)
 			if err != nil {
-				fmt.Println("open file failed!")
-				return nil
+				fmt.Println("1 open file failed!")
+				//return nil
+				// panic(err)
 			}
 			x := 0
 			dec := json.NewDecoder(file)
@@ -117,10 +119,10 @@ func Reduce(mapf func(string, string) []KeyValue,
 
 		filename := fmt.Sprintf("mr-out-%d.txt", args.File)
 
-		newfile,err := os.OpenFile(filename, os.O_CREATE | os.O_RDWR, 0666)
+		newfile,err := os.OpenFile(filename, os.O_CREATE | os.O_RDWR | os.O_APPEND, 0666)
 		if err != nil {
-			fmt.Println("open file failed!")
-			return nil
+			fmt.Println("2 open file failed!")
+			//return nil
 		}
 
 		i := 0
@@ -147,10 +149,10 @@ func Reduce(mapf func(string, string) []KeyValue,
 		args.Done = true
 		ok := call("Coordinator.Reducef", &args, &reply)
 		if !ok {
-			fmt.Printf("call done failed\n")
+			fmt.Printf("3 call done failed\n")
 		}
 
-		return nil
+		//return nil
 }
 
 func taskcall(mapf func(string, string) []KeyValue,
