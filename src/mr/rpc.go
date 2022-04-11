@@ -16,6 +16,7 @@ type Reply struct{
 	Content []byte		//文件内容
 	Filenames []string	
 	MapIndex int
+	RedIndex int
 	Index int			//文件序号
 	Work string			//工作类型
 }

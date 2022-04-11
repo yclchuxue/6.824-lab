@@ -53,7 +53,7 @@ func Map(mapf func(string, string) []KeyValue,
 		kv := mapf(reply.Filename, string(reply.Content))
 
 		//fmt.Println("len(kv) = ", len(kv))
-		//fmt.Println("index = ", args.Index, "\t", reply.Index)
+		//fmt.Println("map index = ", args.Index)
 		for i := 0; i < len(kv); i++ {
 			x := ihash(kv[i].Key) % 10
 			name := fmt.Sprintf("mr-%d%d.txt",args.Index, x)
@@ -88,8 +88,9 @@ func Reduce(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string,args Args, reply Reply) {
 
 		args.File = reply.Index
-		args.Index = reply.Index
-		//fmt.Println("a = ", args.File)
+		args.Index = reply.RedIndex
+
+		//fmt.Println("reduc index = ", args.Index)
 		mediate := []KeyValue{}
 		for _,name := range reply.Filenames {
 			// fmt.Println(name)
@@ -116,8 +117,12 @@ func Reduce(mapf func(string, string) []KeyValue,
 
 		sort.Sort(ByKey(mediate))
 		
+		// for i := 0; i < len(mediate); i++ {
+		// 	fmt.Println( args.Index, args.File, mediate[i].Key, mediate[i].Value)
+		// }
 
-		filename := fmt.Sprintf("mr-out-%d.txt", args.File)
+		
+		filename := fmt.Sprintf("mr-t-%d.txt", args.File)
 
 		newfile,err := os.OpenFile(filename, os.O_CREATE | os.O_RDWR | os.O_APPEND, 0666)
 		if err != nil {
@@ -137,6 +142,8 @@ func Reduce(mapf func(string, string) []KeyValue,
 			}
 			output := reducef(mediate[i].Key, values)
 
+			// fmt.Println(output)
+
 			// this is the correct format for each line of Reduce output.
 			fmt.Fprintf(newfile, "%v %v\n", mediate[i].Key, output)
 
@@ -150,6 +157,10 @@ func Reduce(mapf func(string, string) []KeyValue,
 		ok := call("Coordinator.Reducef", &args, &reply)
 		if !ok {
 			fmt.Printf("3 call done failed\n")
+		}else{
+			if reply.Work == "ok" {
+				os.Rename(filename, fmt.Sprintf("mr-out-%d.txt", args.File))
+			}
 		}
 
 		//return nil
@@ -163,16 +174,19 @@ reducef func(string, []string) string, index int)  {
             log.Println("work failed:", err)
         }
     }()
-	
+
+	// index = -1
+
+	//args.Index = index
+
 	for{
 		args := Args{}
 
-		//args.Index = index
+		// args.Index = index
 
 		args.Done = false
 
 		reply := Reply{}
-
 		//fmt.Println(index)
 
 		ok := call("Coordinator.Task", &args, &reply)
@@ -194,14 +208,15 @@ reducef func(string, []string) string, index int)  {
 				break
 			}		
 		}else{
-			fmt.Println("call failed!")
+			fmt.Println("4 call failed!")
 			//log.Fatalf("call failed!")
 		}
 
+		// index = args.Index
 		// time.Sleep(time.Second * 4)
 	}
 	//fmt.Println("AAAAA")
-	wg.Done()
+	//wg.Done()
 }
 
 //
@@ -210,17 +225,20 @@ reducef func(string, []string) string, index int)  {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	wg.Add(30)
+	//  wg.Add(10)
 
-	goroutinenum := 30
+	// goroutinenum := 10
 
-	for i := 0; i < goroutinenum; i++ {
-		go taskcall(mapf, reducef, i)
-	}
+	// for i := 0; i < goroutinenum; i++ {
+	// 	go taskcall(mapf, reducef, i)
+	// }
 
-	wg.Wait()
+	// wg.Wait()
 
-	//time.Sleep(time.Second * 100)
+	i := 0
+
+	taskcall(mapf, reducef, i)
+
 
 		//reducef()
 		// Your worker implementation here.

@@ -37,6 +37,7 @@ type Coordinator struct {
 	renum int
 	manum int
 	time  int
+	nReduce int
 
 	mapfilish bool
 	reducefilish bool
@@ -72,45 +73,66 @@ func (c *Coordinator) Reducef(args *Args, reply *Reply) error {
 		}
 		if ice {
 			c.rfilished[args.File] = 0       //filished
-			//reply.Work = "ok"
+			reply.Work = "ok"
 		}else{
 			c.failindex = append(c.failindex[:i], c.failindex[i+1:]...)
 		}
 		//fmt.Println(args.Index)
 
 	}else{
-		reply.Index = c.renum
-		//fmt.Println(len(c.Intermediate_index))
-		if c.rfilished[reply.Index] == -1{
-			for _,i := range c.Intermediate_index {
-				name := fmt.Sprintf("mr-%d%d.txt", i, c.renum)
+
+		ice := false
+		i := -1
+		for it,num := range c.failindex {
+			if num == args.Index {
+				ice = true
+				i = it
+				break
+			}
+		}
+		if ice {
+			// c.mfilished[args.File] = 0       //filished
+			c.failindex = append(c.failindex[:i], c.failindex[i+1:]...)
+		}
+
+		reply.RedIndex = c.renum
+		c.renum++
+		ice = false
+		i = -1
+		for it := 0; it < c.nReduce; it++ {
+			if c.redwork[it] == -1 {
+				ice = true
+				i = it
+				break
+			}
+		}
+
+		if ice && c.rfilished[i] == -1{
+			for _,j := range c.Intermediate_index {
+				name := fmt.Sprintf("mr-%d%d.txt", j, i)
 				reply.Filenames = append(reply.Filenames, name)
 				//fmt.Println("name = ", name)
 			}
-			c.renum++
-			c.rfilished[reply.Index] = 1
-			c.redwork[reply.Index] = reply.Index
+			
+			c.rfilished[i] = 1
+			c.redwork[i] = reply.RedIndex
+			reply.Index = i
 			work := "reduce"
 			reply.Work = work
 		}else{
 			c.cond.Wait()
-			if c.renum == -1 {
+			if c.Index == -1 {
 				work := "other"
 				reply.Work = work
 			}
-			if c.rfilished[c.renum] == -1 {
+			if c.rfilished[c.Index] == -1 && c.redwork[c.Index] == -1 {
 				
-				for it,_ := range c.redwork {
-					if c.redwork[it] == -1 && it == c.Index{
-						reply.Index = it
-					}
-					break
+				for _,j := range c.Intermediate_index {
+					reply.Filenames = append(reply.Filenames, fmt.Sprintf("mr-%d%d.txt", j, c.Index))
 				}
-				for i := range c.Intermediate_index {
-					reply.Filenames = append(reply.Filenames, fmt.Sprintf("mr-%d%d.txt", i, reply.Index))
-				}
-				c.redwork[reply.Index] = reply.Index
-				c.rfilished[reply.Index] = 1
+				c.redwork[c.Index] = reply.RedIndex
+				reply.Index = c.Index
+				c.rfilished[c.Index] = 1
 				work := "reduce"
 				reply.Work = work
 			}
@@ -146,9 +168,24 @@ func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
 		}
 		//fmt.Println("args.index = ", args.Index)
 	}else{
+
+		ice := false
+		i := -1
+		for it,num := range c.failindex {
+			if num == args.Index {
+				ice = true
+				i = it
+				break
+			}
+		}
+		if ice {
+			// c.mfilished[args.File] = 0       //filished
+			c.failindex = append(c.failindex[:i], c.failindex[i+1:]...)
+		}
+
 		reply.MapIndex = c.manum
 		c.manum++
-		ice := 0
+		ice = false
 		for it,_ := range c.Infilenames {
 			//fmt.Println("num = ", c.Indexfiles[it], "index = ", it)
 			if c.Indexfiles[it] == 1 {
@@ -159,17 +196,17 @@ func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
 				c.mfilished[it] = 1
 				c.mapwork[c.Infilenames[it]] = reply.MapIndex
 				//fmt.Println("num1 = ", c.Infilenames[it])
-				ice = 1
+				ice = true
 				break
 			}
 		}
-		if ice == 1 {
+		if ice == true {
 			reply.Work = "map"
 		}else{  //多余的mapf等待任务
 		// 	for !c.conditioon {
 		 		c.cond.Wait()
 				//fmt.Println("被唤醒")
-				ice = 0
+				ice = false
 				for it,_ := range c.Infilenames {
 					if c.Indexfiles[it] == 1 && it == c.Index{
 						reply.Index = it
@@ -177,11 +214,11 @@ func (c *Coordinator) Mapf(args *Args, reply *Reply) error {
 						c.mapwork[c.Infilenames[it]] = reply.MapIndex
 						c.Indexfiles[it] = 0
 						c.mfilished[it] = 1
-						ice = 1
+						ice = true
 						break
 					}
 				}
-				if ice == 1{
+				if ice == true{
 					reply.Work = "map"
 				}else{
 					work := "other"
@@ -301,7 +338,7 @@ func (c *Coordinator) Done() bool {
 	}
 	if !c.reducefilish {
 		if c.time < 0 {
-			for i:= 0; i< 10; i++ {
+			for i:= 0; i< c.nReduce; i++ {
 				if c.rfilished[i] != 0 {
 					c.cond.L.Lock()
 					//c.conditioon = true
@@ -319,14 +356,14 @@ func (c *Coordinator) Done() bool {
 		}
 		ret = true
 		c.cond.L.Lock()
-		for i:= 0; i < 10; i++ {
+		for i:= 0; i < c.nReduce; i++ {
 			if c.rfilished[i] != 0 {
 				ret = false
 			}
 		}
 		if ret {
 			c.reducefilish = true
-			c.renum = -1
+			c.Index = -1
 			c.cond.Broadcast()
 		}
 		c.cond.L.Unlock()
@@ -350,6 +387,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.manum = 0
 	c.fileopen = false
 	c.time = 30
+	c.nReduce = nReduce
 	c.mfilished = make(map[int]int)
 	c.rfilished = make(map[int]int)
 	c.mapwork = make(map[string]int)
@@ -369,10 +407,10 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		c.mfilished[i] = -1    //未被分配
 	}
 
-	for j:=0; j<10 ;j++ {
+	for j:=0; j<nReduce ;j++ {
 		c.rfilished[j] = -1
 		c.redwork[j] = -1
-	} 
+	}
 	//fmt.Println("VVV\t", c.filished[5])
 	c.server()
 	return &c
