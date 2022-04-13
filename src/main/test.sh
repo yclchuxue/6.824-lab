@@ -70,20 +70,59 @@ echo '***' Starting reduce parallelism test.
 
 rm -f mr-*
 
-$TIMEOUT ../mrcoordinator ../pg*txt &
+#########################################################
+echo '***' Starting crash test.
+
+# generate the correct output
+../mrsequential ../../mrapps/nocrash.so ../pg*txt || exit 1
+sort mr-out-0 > mr-correct-crash.txt
+rm -f mr-out*
+
+rm -f mr-done
+($TIMEOUT ../mrcoordinator ../pg*txt ; touch mr-done ) &
 sleep 1
 
-$TIMEOUT ../mrworker ../../mrapps/rtiming.so &
-$TIMEOUT ../mrworker ../../mrapps/rtiming.so
+# start multiple workers
+$TIMEOUT ../mrworker ../../mrapps/crash.so &
 
-NT=`cat mr-out* | grep '^[a-z] 2' | wc -l | sed 's/ //g'`
-if [ "$NT" -lt "2" ]
-then
-  echo '---' too few parallel reduces.
-  echo '---' reduce parallelism test: FAIL
-  failed_any=1
-else
-  echo '---' reduce parallelism test: PASS
-fi
+# mimic rpc.go's coordinatorSock()
+SOCKNAME=/var/tmp/824-mr-`id -u`
+
+( while [ -e $SOCKNAME -a ! -f mr-done ]
+  do
+    $TIMEOUT ../mrworker ../../mrapps/crash.so
+    sleep 1
+  done ) &
+
+( while [ -e $SOCKNAME -a ! -f mr-done ]
+  do
+    $TIMEOUT ../mrworker ../../mrapps/crash.so
+    sleep 1
+  done ) &
+
+while [ -e $SOCKNAME -a ! -f mr-done ]
+do
+  $TIMEOUT ../mrworker ../../mrapps/crash.so
+  sleep 1
+done
 
 wait
+
+rm $SOCKNAME
+sort mr-out* | grep . > mr-crash-all
+if cmp mr-crash-all mr-correct-crash.txt
+then
+  echo '---' crash test: PASS
+else
+  echo '---' crash output is not the same as mr-correct-crash.txt
+  echo '---' crash test: FAIL
+  failed_any=1
+fi
+
+#########################################################
+if [ $failed_any -eq 0 ]; then
+    echo '***' PASSED ALL TESTS
+else
+    echo '***' FAILED SOME TESTS
+    exit 1
+fi

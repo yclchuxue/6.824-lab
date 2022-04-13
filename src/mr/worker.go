@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	// "io/ioutil"
+
 	// "time"
 
 	//"io"
@@ -104,6 +106,7 @@ func Reduce(mapf func(string, string) []KeyValue,
 			dec := json.NewDecoder(file)
 			for {
 				var kv KeyValue
+				//fmt.Println("AAA")
 				if err := dec.Decode(&kv); err != nil {
 					break
 				}
@@ -152,6 +155,18 @@ func Reduce(mapf func(string, string) []KeyValue,
 		newfile.Close()
 
 		//fmt.Println(filename)
+
+		// file,err := os.OpenFile(filename, os.O_CREATE | os.O_RDWR | os.O_APPEND, 0666)
+		// if err != nil {
+		// 	fmt.Println("2 open file failed!")
+		// 	//return nil
+		// }
+
+		// content, err := ioutil.ReadAll(file)
+
+		// fmt.Println(args.Index, string(content))
+
+		// file.Close()
 
 		args.Done = true
 		ok := call("Coordinator.Reducef", &args, &reply)

@@ -329,7 +329,9 @@ func (c *Coordinator) Done() bool {
 			ret = false
 			c.Index = 0
 			c.cond.Broadcast()
-			c.failindex = []int{} //c.failindex[:1]
+			c.failindex = []int{} 
+			// fmt.Println("map over")
+			//c.failindex[:1]
 			// for it,_ := range c.Infilenames {
 			// 	c.Infilenames[it] = 1
 			// }
