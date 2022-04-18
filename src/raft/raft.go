@@ -19,13 +19,15 @@ package raft
 
 import (
 	//	"bytes"
+	"log"
+	"math/rand"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	//	"6.824/labgob"
 	"6.824/labrpc"
 )
-
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -60,9 +62,16 @@ type Raft struct {
 	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
 
-	currentTerm int
+	currentTerm int  		//当前任期
 	leaderId int
-	term int
+	
+	votedFor int          
+
+	//state string      //follower       candidate         leader
+
+	electionRandomTimeout int
+	electionElapsed 	  int
+
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
@@ -76,6 +85,13 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (2A).
+
+	if string(rf.persister.raftstate) == "leader" {
+		isleader = true
+	}
+
+	term = rf.currentTerm
+
 	return term, isleader
 }
 
@@ -146,8 +162,9 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 //
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
-	Work string  //请求类型
-	Term int     //当前任期
+	//Work string  		//请求类型
+	Term int     		//候选者的任期
+	CandidateId  int	//候选者的编号
 }
 
 //
@@ -156,15 +173,95 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here (2A).
-	Vote_result bool  //投票结果
+	VoteGranted bool  	//投票结果,同意为true
+	Term int 			//当前任期，候选者用于更新自己
+}
 
+//心跳包
+type AppendEntriesArgs struct {
+	Term int  			//leader任期
+	LeaderId int 		//用来follower重定向到leader
+}
+
+type AppendEntriesReply struct {
+	Term int 			//当前任期，leader用来更新自己
 }
 
 //
 // example RequestVote RPC handler.
-// 	请求投票
+// 	被请求投票
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+
+	//待处理收到请求投票信息后是否更新超时时间
+	
+	//所有服务器和接收者的处理流程
+
+	if rf.currentTerm > args.Term {       //候选者任期低于自己
+		reply.VoteGranted = false
+		reply.Term = rf.currentTerm
+	}else if rf.currentTerm < args.Term {      //候选者任期高于自己
+		reply.VoteGranted = true
+		reply.Term = args.Term
+
+		rf.mu.Lock()
+		rf.currentTerm = args.Term
+		rf.votedFor = args.CandidateId
+		rf.electionElapsed = 0
+		rf.electionRandomTimeout = 5000
+		rf.mu.Unlock()
+	}else if rf.votedFor == -1 || rf.votedFor == args.CandidateId {  //任期相同且未投票或者候选者和上次相同
+		//if 日志至少和自己一样新
+		rf.mu.Lock()
+		rf.electionElapsed = 0
+		rf.electionRandomTimeout = 5000
+		rf.votedFor = args.CandidateId
+		rf.mu.Unlock()
+
+		reply.VoteGranted = true
+		reply.Term = args.Term
+	}
+	// else if commitIndex > lastApplied {
+
+	// }
+
+	//不同身份服务器处理流程
+	switch string(rf.persister.raftstate) {
+	case "follower":
+		
+	case "candidate":
+
+	case "leader":
+
+
+	}
+}
+
+
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	if args.Term >= rf.currentTerm {    //收到心跳包的任期不低于当前任期
+		rf.mu.Lock()
+		rf.electionElapsed = 0
+		rand.Seed(time.Now().UnixNano())
+		rf.electionRandomTimeout = rand.Intn(100)+300
+		rf.currentTerm = args.Term
+		//if string(rf.persister.raftstate) != "follower" {
+		if rf.leaderId != args.LeaderId {
+			log.Printf("%d become follower!", rf.me)
+		}
+		rf.leaderId = args.LeaderId
+		rf.persister.raftstate = []byte("follower")
+		rf.mu.Unlock()
+	}else{         //args.term < currentTerm
+
+	}
+}
+
+
+//发送心跳包
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
 }
 
 //
@@ -252,11 +349,75 @@ func (rf *Raft) killed() bool {
 // heartsbeats recently.
 func (rf *Raft) ticker() {
 	for rf.killed() == false {
-
 		// Your code here to check if a leader election should
 		// be started and to randomize sleeping time using
 		// time.Sleep().
+		switch string(rf.persister.raftstate) {
+		case "follower":
+			time.Sleep(time.Millisecond)
+			if rf.electionElapsed >= rf.electionRandomTimeout {
+				rand.Seed(time.Now().UnixNano())
+				rf.mu.Lock()
+				rf.currentTerm++
+				rf.persister.raftstate = []byte("candidate")        //变为候选人并发起投票
+				rf.electionRandomTimeout = 5000//rand.Intn(100) + 300
+				rf.electionElapsed = 0
+				rf.mu.Unlock()
+			}
+			rf.mu.Lock()
+			rf.electionElapsed++
+			rf.mu.Unlock()
+		case "candidate":
+			time.Sleep(time.Millisecond)
+			if rf.electionElapsed >= rf.electionRandomTimeout {
+				rand.Seed(time.Now().UnixNano())
+				rf.mu.Lock()
+				rf.electionRandomTimeout = 5000//rand.Intn(100) + 300
+				rf.electionElapsed = 0
+				rf.mu.Unlock()
+			}
+			rf.mu.Lock()
+			rf.electionElapsed++
+			rf.mu.Unlock()
 
+			log.Printf("%d start a new election!", rf.me)
+
+			num := 1
+			peers := 0
+			for it := range rf.peers {
+				if it != rf.me {
+					args  := RequestVoteArgs{}
+					reply := RequestVoteReply{}
+					args.CandidateId = rf.me
+					args.Term = rf.currentTerm	
+					
+					rf.sendRequestVote(it, &args, &reply)  //发起投票
+					//处理收到的票数
+					if reply.VoteGranted {
+						num++
+					}
+				}
+				peers++
+			}
+			log.Printf("%d have %d votes! %d", rf.me, num, peers/2)
+			if num > peers/2 {    //票数过半
+				rf.persister.raftstate = []byte("leader")
+				log.Printf("%d become leader!", rf.me)
+			}
+			
+		case "leader":
+			
+			for it := range rf.peers {
+				if it != rf.me {
+					args := AppendEntriesArgs{}
+					args.Term = rf.currentTerm
+					args.LeaderId = rf.me
+					reply := AppendEntriesReply{}
+					rf.sendAppendEntries(it, &args, &reply)
+				}
+			}
+			time.Sleep(time.Millisecond*90)
+	}
 	}
 }
 
@@ -277,11 +438,20 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
+	rf.votedFor = -1
+	rf.leaderId = -1
+	rf.currentTerm = 0
+	rf.electionElapsed = 0
+	rand.Seed(time.Now().UnixNano())
+	rf.electionRandomTimeout = rand.Intn(100) + 300
+	rf.persister.raftstate = []byte("follower")
+
+	//atomic.StoreInt32(&rf.dead, 0)
 
 	// Your initialization code here (2A, 2B, 2C).
 
 	// initialize from state persisted before a crash
-	rf.readPersist(persister.ReadRaftState())
+	rf.readPersist(persister.ReadRaftState())  //快照
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
