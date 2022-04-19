@@ -454,6 +454,7 @@ func (cfg *config) checkOneLeader() int {
 		}
 
 		if len(leaders) != 0 {
+			log.Printf("%v", leaders)
 			return leaders[lastTermWithLeader][0]
 		}
 	}
