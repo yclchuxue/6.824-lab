@@ -19,7 +19,7 @@ package raft
 
 import (
 	//	"bytes"
-	// "log"
+	"log"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -65,9 +65,9 @@ type Raft struct {
 	currentTerm int  		//当前任期
 	leaderId int
 	
-	votedFor int          
+	votedFor int        
 
-	//state string      //follower       candidate         leader
+	state string      //follower       candidate         leader
 
 	electionRandomTimeout int
 	electionElapsed 	  int
@@ -85,13 +85,12 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (2A).
-
+	rf.mu.Lock()
 	if string(rf.persister.raftstate) == "leader" {
 		isleader = true
 	}
-
 	term = rf.currentTerm
-
+	rf.mu.Unlock()
 	return term, isleader
 }
 
@@ -196,7 +195,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	//待处理收到请求投票信息后是否更新超时时间
 	
 	//所有服务器和接收者的处理流程
-
+	rf.mu.Lock()
 	if rf.currentTerm > args.Term {       //候选者任期低于自己
 		reply.VoteGranted = false
 		reply.Term = rf.currentTerm
@@ -206,8 +205,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}else if rf.currentTerm < args.Term {      //候选者任期高于自己
 		reply.VoteGranted = true
 		reply.Term = args.Term
-
-		rf.mu.Lock()
 		
 		Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
 		// rf.votedFor = -1
@@ -223,16 +220,16 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.electionElapsed = 0
 		rand.Seed(time.Now().UnixNano())
 		rf.electionRandomTimeout = rand.Intn(250) + 200
-		rf.mu.Unlock()
+		
 	}else{
 		if rf.votedFor == -1 || rf.votedFor == args.CandidateId {  //任期相同且未投票或者候选者和上次相同
 			//if 日志至少和自己一样新
-			rf.mu.Lock()
+			
 			rf.electionElapsed = 0
 			rand.Seed(time.Now().UnixNano())
 			rf.electionRandomTimeout = rand.Intn(250) + 200
 			rf.votedFor = args.CandidateId
-			rf.mu.Unlock()
+			
 			Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
 			DEBUG(dVote,"S%d %3v voye <- %d T(%d) = cT(%d) vf(%d)\n", rf.me, Mi, args.CandidateId, args.Term, rf.currentTerm, rf.votedFor)
 			//log.Printf("%v %d requestvote from %d in args.Term(%d) and currentTerm(%d) and votefor(%d)", Mi, rf.me, args.CandidateId, args.Term, rf.currentTerm, rf.votedFor)
@@ -246,17 +243,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			reply.Term = args.Term
 		}
 	}
-	// else if commitIndex > lastApplied {
-
-	// }
-
-	//不同身份服务器处理流程
-	// switch string(rf.persister.raftstate) {
-	// case "follower":
-		
-	// case "candidate":
-
-	// case "leader":
+	rf.mu.Unlock()
 
 }
 
@@ -265,8 +252,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
 	DEBUG(dLeader, "S%d %3v app <- %d T(%d) cT(%d)\n",rf.me, Mi, args.LeaderId, args.Term, rf.currentTerm)
 	//log.Printf("%v %d heart from %d in args.Term(%d) and currentTerm(%d)", Mi, rf.me, args.LeaderId, args.Term, rf.currentTerm)
+	rf.mu.Lock()
 	if args.Term >= rf.currentTerm {    //收到心跳包的任期不低于当前任期
-		rf.mu.Lock()
+		
 		rf.electionElapsed = 0
 		// rf.votedFor = -1
 		rand.Seed(time.Now().UnixNano())
@@ -286,11 +274,12 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 		rf.leaderId = args.LeaderId
 		rf.persister.raftstate = []byte("follower")
-		rf.mu.Unlock()
+		
 		reply.Term = args.Term
 	}else{         //args.term < currentTerm
 		reply.Term = rf.currentTerm
 	}
+	rf.mu.Unlock()
 }
 
 
@@ -381,39 +370,134 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
-func (rf *Raft) appendentries(){
+func (rf *Raft) appendentries(term int){
 
-	becomefollower := int64(-1)
+	// becomefollower := int64(-1)
 
-	Ti := int64(len(rf.peers))
+	Ti := int64(len(rf.peers)-1)
 
-	go func() {
+	//go func() {
 	
 	for it := range rf.peers {
 		if it != rf.me {
 
-			go func(it int) {
-
+			go func(it int, term int) {
+				
 				args := AppendEntriesArgs{}
-				args.Term = rf.currentTerm
+				args.Term = term
 				args.LeaderId = rf.me
 				reply := AppendEntriesReply{}
 				Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
-				DEBUG(dLeader, "S%d %3v app -> %d cT(%d)\n", rf.me, Mi, it, rf.currentTerm)
+				DEBUG(dLeader, "S%d %3v app -> %d cT(%d)\n", rf.me, Mi, it, term)
+				
+				
+				
 				//log.Printf("%v %d send to %d heart in currentTerm(%d)", Mi, rf.me, it, rf.currentTerm)
-				ok := rf.sendAppendEntries(int(it), &args, &reply)
-				if ok {
-					if reply.Term > rf.currentTerm {
+				if term == rf.currentTerm {
+
+					ok := rf.sendAppendEntries(it, &args, &reply)
+					rf.mu.Lock()
+					//start := time.Now()
+					if ok {
+						if reply.Term > rf.currentTerm {
+							Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
+							DEBUG(dLeader, "S%d %3v app be %d's follower T(%d)\n",rf.me, Mi, -1, reply.Term)
+							//log.Printf("%d become %d' follower int term(%d)", rf.me, -1, reply.Term)
+							//atomic.StoreInt64(&becomefollower, int64(reply.Term))
+							rf.currentTerm = reply.Term
+							rf.votedFor = -1
+							rf.leaderId = -1 //int(Id)
+							rf.persister.raftstate = []byte("follower")
+							rf.electionElapsed = 0
+							rand.Seed(time.Now().UnixNano())
+							rf.electionRandomTimeout = rand.Intn(250) + 200
+						}
+					}else{
 						Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
-						DEBUG(dLeader, "S%d %3v app be %d's follower T(%d)\n",rf.me, Mi, -1, reply.Term)
-						//log.Printf("%d become %d' follower int term(%d)", rf.me, -1, reply.Term)
-						atomic.StoreInt64(&becomefollower, int64(reply.Term))
+						DEBUG(dLeader, "S%d %3v app -> %d fail cT(%d)\n", rf.me, Mi, it, term)
+						//log.Printf("%d send heart call to %d fail int term(%d)", rf.me, it, args.Term)
+					}
+					rf.mu.Unlock()
+					//ti := time.Since(start).Milliseconds()
+					//log.Printf("S%d BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB%d", rf.me, ti)				
+				}
+				
+				atomic.AddInt64(&Ti, -1)
+				
+				
+
+			}(it, term)
+
+		}
+	}
+
+	// atomic.AddInt64(&Ti, -1)
+
+	//}()
+
+	for{
+		if atomic.LoadInt64(&Ti) == 0 {
+			return
+		}
+	}
+}
+
+
+func (rf *Raft) requestvotes(term int) {
+	truenum := int64(1)
+	falsenum := int64(-1)
+	Ti := int64(len(rf.peers)-1)
+	peers := len(rf.peers)
+	//rf.mu.Lock()
+	rf.mu.Lock()
+	rf.votedFor = rf.me
+	Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
+	DEBUG(dVote, "S%d %3v vote vf(%d) to own\n", rf.me, Mi, rf.votedFor)
+	// log.Printf("%d votefor(%d) for own", rf.me, rf.votedFor)
+	rf.mu.Unlock()
+
+
+	for it := range rf.peers {
+		if it != rf.me {
+
+			go func(it int) {
+				args  := RequestVoteArgs{}
+				reply := RequestVoteReply{}
+				args.CandidateId = rf.me
+				args.Term = term	
+
+				Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
+				DEBUG(dVote, "S%d %3v vote -> %d cT(%d)\n", rf.me, Mi, it, term)
+				ok := rf.sendRequestVote(it, &args, &reply)  //发起投票
+				rf.mu.Lock()
+				if ok {
+					
+					if term != rf.currentTerm {
+						rf.votedFor = -1
+						// rf.mu.Unlock()
+						Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
+						DEBUG(dVote, "S%d %3v vote tT(%d) != cT(%d)\n", rf.me, Mi, term, rf.currentTerm)
+						//log.Printf("%v %d term(%d) != currentTerm(%d) votefor(%d) A", Mi, rf.me, term, rf.currentTerm, rf.votedFor)
+						//return
+					}else{
+					
+						//处理收到的票数
+						if reply.VoteGranted && reply.Term == term {
+							atomic.AddInt64(&truenum, 1)
+						}
+
+						if reply.Term > rf.currentTerm {
+							//falsenum = reply.Term
+							DEBUG(dVote, "S%d T(%d) < cT(%d)\n", rf.me, reply.Term, rf.currentTerm)
+							atomic.StoreInt64(&falsenum, int64(reply.Term))
+							// atomic.StoreInt64(&Id, int64(it))
+						}
 					}
 				}else{
-					Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
-					DEBUG(dLeader, "S%d %3v app -> %d fail cT(%d)\n", rf.me, Mi, it, rf.currentTerm)
-					//log.Printf("%d send heart call to %d fail int term(%d)", rf.me, it, args.Term)
+					DEBUG(dVote, "S%d vote -> %d fail\n", rf.me, it)
 				}
+				rf.mu.Unlock()
+
 				atomic.AddInt64(&Ti, -1)
 
 			}(it)
@@ -421,123 +505,8 @@ func (rf *Raft) appendentries(){
 		}
 	}
 
-	atomic.AddInt64(&Ti, -1)
-
-	}()
-
-	for{
-		if int(becomefollower) != -1 && int(becomefollower) > rf.currentTerm{
-			rf.mu.Lock()
-			rf.currentTerm = int(becomefollower)
-			rf.votedFor = -1
-			Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
-			DEBUG(dLeader, "S%d %3v app be %d's follower T(%d)\n", rf.me, Mi, -1, int(becomefollower))
-			//log.Printf("%d votefor(%d) and become follower", rf.me, rf.votedFor)
-			rf.leaderId = -1 //int(Id)
-			rf.persister.raftstate = []byte("follower")
-			rf.electionElapsed = 0
-			rand.Seed(time.Now().UnixNano())
-			rf.electionRandomTimeout = rand.Intn(250) + 200
-			rf.mu.Unlock()
-			//return
-		}
-
-		if Ti == 0 {
-			return
-		}
-	}
-}
-
-
-func (rf *Raft) requestvotes() {
-	truenum := int64(1)
-	falsenum := int64(-1)
-	Ti := int64(len(rf.peers))
-	peers := len(rf.peers)
-	rf.mu.Lock()
-	term := rf.currentTerm
-	// Id := int64(0)
-	rf.votedFor = rf.me
-	Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
-	DEBUG(dVote, "S%d %3v vote vf(%d) to own\n", rf.me, Mi, rf.votedFor)
-	// log.Printf("%d votefor(%d) for own", rf.me, rf.votedFor)
-	rf.mu.Unlock()
-
-	go func() {
-
-	for it := range rf.peers {
-		if it != rf.me {
-
-			go func(it int) {
-
-			args  := RequestVoteArgs{}
-			reply := RequestVoteReply{}
-			args.CandidateId = rf.me
-			args.Term = term	
-
-			Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
-			DEBUG(dVote, "S%d %3v vote -> %d cT(%d)\n", rf.me, Mi, it, term)
-			ok := rf.sendRequestVote(it, &args, &reply)  //发起投票
-			if ok {
-
-				rf.mu.Lock()
-				if term != rf.currentTerm {
-					rf.votedFor = -1
-					rf.mu.Unlock()
-					Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
-					DEBUG(dVote, "S%d %3v vote tT(%d) != cT(%d)\n", rf.me, Mi, term, rf.currentTerm)
-					//log.Printf("%v %d term(%d) != currentTerm(%d) votefor(%d) A", Mi, rf.me, term, rf.currentTerm, rf.votedFor)
-					return
-				}
-				
-				//处理收到的票数
-				if reply.VoteGranted && reply.Term == term {
-					atomic.AddInt64(&truenum, 1)
-				}
-
-				if reply.Term > rf.currentTerm {
-					//falsenum = reply.Term
-					DEBUG(dVote, "S%d T(%d) < cT(%d)\n", rf.me, reply.Term, rf.currentTerm)
-					atomic.StoreInt64(&falsenum, int64(reply.Term))
-					// atomic.StoreInt64(&Id, int64(it))
-				}
-				rf.mu.Unlock()
-			}
-
-			atomic.AddInt64(&Ti, -1)
-
-			}(it)
-
-			// if truenum > peers/2 {    //同意票数过半
-			// 	Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
-			// 	log.Printf("%v %d have %d votes in term(%d) but currentterm(%d) A! %d", Mi, rf.me, truenum, term, rf.currentTerm, peers/2)
-			// 	rf.mu.Lock()
-			// 	if term == rf.currentTerm {
-			// 		rf.persister.raftstate = []byte("leader")
-			// 		rf.votedFor = -1
-			// 		Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
-			// 		log.Printf("%v %d become leader! A", Mi, rf.me)
-			// 		rf.mu.Unlock()
-			// 		return
-			// 	}else{
-			// 		rf.votedFor = -1
-			// 		rf.mu.Unlock()
-			// 		return
-			// 	}
-			// }
-			// if falsenum > peers/2 {    //反对票数过半
-
-			// 	return
-			// }
-		}
-	}
-
-	atomic.AddInt64(&Ti, -1)
-
-	}()
-
 	for {
-		if  falsenum != -1{
+		if atomic.LoadInt64(&falsenum) != -1{
 			rf.mu.Lock()
 			rf.currentTerm = int(falsenum)
 			rf.leaderId = -1//int(Id)
@@ -554,13 +523,17 @@ func (rf *Raft) requestvotes() {
 			atomic.StoreInt64(&falsenum, int64(-1))
 			//return 
 		}
-		if int(truenum) > peers/2 {    //票数过半
+		if atomic.LoadInt64(&truenum) > int64(peers/2) {    //票数过半
+			rf.mu.Lock()
+
 			Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
 			DEBUG(dVote,"S%d %3v have %d votes T(%d) cT(%d) %d B\n", rf.me, Mi, truenum, term, rf.currentTerm, peers/2)
 			//log.Printf("%v %d have %d votes in term(%d) but currentterm(%d)! %d B", Mi, rf.me, truenum, term, rf.currentTerm, peers/2)
-			rf.mu.Lock()
+			
 					if term == rf.currentTerm {
 						rf.persister.raftstate = []byte("leader")
+						rf.electionElapsed = 0
+						go rf.appendentries(rf.currentTerm)
 						// rf.votedFor = -1
 						rf.mu.Unlock()
 						Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
@@ -573,14 +546,16 @@ func (rf *Raft) requestvotes() {
 						return
 					}
 		}
-		if Ti == 0 {
+		if atomic.LoadInt64(&Ti) == 0 {
 			if int(truenum) > peers/2 {    //票数过半
 				Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
 				DEBUG(dVote, "S%d %3v have %d votes T(%d) cT(%d) %d D\n", rf.me, Mi, truenum, term, rf.currentTerm, peers/2)
 				//log.Printf("%v %d have %d votes in term(%d) but currentterm(%d)! %d D", Mi, rf.me, truenum, term, rf.currentTerm, peers/2)
 				rf.mu.Lock()
 						if term == rf.currentTerm {
+							rf.electionElapsed = 0
 							rf.persister.raftstate = []byte("leader")
+							go rf.appendentries(rf.currentTerm)
 							// rf.votedFor = -1
 							rf.mu.Unlock()
 							Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
@@ -591,8 +566,10 @@ func (rf *Raft) requestvotes() {
 							rf.mu.Unlock()
 						}
 			}else{
+				rf.mu.Lock()
 				Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
 				DEBUG(dVote, "S%d %3v have %d votes T(%d) cT(%d) %d C\n", rf.me, Mi, truenum, term, rf.currentTerm, peers/2)
+				rf.mu.Unlock()
 				//log.Printf("%v %d have %d votes in term(%d) but currentterm(%d)! %d C", Mi, rf.me, truenum, term, rf.currentTerm, peers/2)
 			}
 
@@ -635,84 +612,122 @@ func (rf *Raft) requestvotes() {
 // The ticker go routine starts a new election if this peer hasn't received
 // heartsbeats recently.
 func (rf *Raft) ticker() {
+
+	// go func() {
+	// 	for {
+	// 		rf.mu.Lock()
+	// 			switch string(rf.persister.raftstate) {
+	// 			case "follower":
+	// 				if rf.electionElapsed >= rf.electionRandomTimeout {   
+	// 					Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
+	// 					DEBUG(dLog, "S%d %3v timeout\n", rf.me, Mi)
+						
+	// 					//go func() {
+
+	// 						rand.Seed(time.Now().UnixNano())
+							
+	// 						rf.electionRandomTimeout = rand.Intn(250) + 200
+	// 						rf.electionElapsed = 0
+	// 						rf.persister.raftstate = []byte("candidate")   
+	// 						rf.currentTerm++
+	// 						rf.votedFor = -1
+							
+
+	// 						Mi = time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
+	// 						DEBUG(dTimer, "S%d %3v timeout vf(%d) be candidate\n", rf.me, Mi, rf.votedFor)
+	// 						//log.Printf("%d timeout votefor(%d) become candidate", rf.me, rf.votedFor)
+	// 						DEBUG(dVote, "S%d %3v vote start election cT(%d)\n", rf.me, Mi, rf.currentTerm)
+	// 						//log.Printf("%v %d start a new election in %d!",  Mi, rf.me, rf.currentTerm)
+	// 						go rf.requestvotes(rf.currentTerm)
+						
+	// 					//}()
+	// 				}
+	// 				break
+	// 			case "candidate":
+	// 				if rf.electionElapsed >= rf.electionRandomTimeout {   
+						
+	// 						rand.Seed(time.Now().UnixNano())
+	// 						rf.electionRandomTimeout = rand.Intn(250) + 200
+	// 						rf.electionElapsed = 0
+	// 						rf.currentTerm++
+	// 						rf.votedFor = -1	
+	// 						//log.Printf("%d timeout votefor(%d) agin event in term(%d)", rf.me, rf.votedFor, rf.currentTerm)
+	// 						//log.Printf("%v %d start a new election in %d!",  Mi, rf.me, rf.currentTerm)
+
+	// 						Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000 
+	// 						DEBUG(dTimer, "S%d %3v timeout vf(%d) cT(%d)\n", rf.me, Mi, rf.votedFor, rf.currentTerm)
+	// 						DEBUG(dVote, "S%d %3v vote start election agin cT(%d)\n", rf.me, Mi, rf.currentTerm)
+	// 						go rf.requestvotes(rf.currentTerm)
+							
+	// 				}
+	// 				break
+	// 			case "leader":
+	// 				if rf.electionElapsed >= 90 {   
+
+	// 					rf.electionElapsed = 0
+						
+	// 					go rf.appendentries(rf.currentTerm)	
+
+	// 					DEBUG(dError, "S%v HB now: %v\n", rf.me, time.Now().UnixMilli())
+	// 					Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
+	// 					DEBUG(dTimer, "S%d %3v timeout vf(%d) cT(%d)\n", rf.me, Mi, rf.votedFor, rf.currentTerm)
+	// 				}
+	// 				break
+	// 			}
+			
+	// 		rf.mu.Unlock()
+		
+	// 	}
+		
+	// }()
+
+
+
 	for rf.killed() == false {
 		// Your code here to check if a leader election should
 		// be started and to randomize sleeping time using
 		// time.Sleep().
 
 		//log.Printf("%v", string(rf.persister.raftstate))
+		//start := time.Now()
+		rf.mu.Lock()
+		start := time.Now()
+		if rf.electionElapsed >= rf.electionRandomTimeout {
+			if string(rf.persister.raftstate) == "follower"{
+				rand.Seed(time.Now().UnixNano())
+				rf.electionRandomTimeout = rand.Intn(250) + 200
+				rf.electionElapsed = 0
+				rf.persister.raftstate = []byte("candidate")   
+				rf.currentTerm++
+				rf.votedFor = -1
 
-		switch string(rf.persister.raftstate) {
-		case "follower":
-			time.Sleep(time.Millisecond)
+				go rf.requestvotes(rf.currentTerm)
+			}
+			if string(rf.persister.raftstate) == "candidate" {
+				rand.Seed(time.Now().UnixNano())
+				rf.electionRandomTimeout = rand.Intn(250) + 200
+				rf.electionElapsed = 0
+				rf.currentTerm++
+				rf.votedFor = -1	
+				go rf.requestvotes(rf.currentTerm)
+			}
+		}	
+		if rf.electionElapsed >= 90 {
+			if string(rf.persister.raftstate) == "leader"{
+				rf.electionElapsed = 0
+							
+				go rf.appendentries(rf.currentTerm)	
+			}
+		}
 
-			go func() {
-				
-						if rf.electionElapsed >= rf.electionRandomTimeout {
-						rand.Seed(time.Now().UnixNano())
-						rf.mu.Lock()
-						rf.currentTerm++
-						rf.votedFor = -1
-						Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
-						DEBUG(dTimer, "S%d %3v timeout vf(%d) be candidate\n", rf.me, Mi, rf.votedFor)
-						//log.Printf("%d timeout votefor(%d) become candidate", rf.me, rf.votedFor)
-						rf.persister.raftstate = []byte("candidate")        //变为候选人并发起投票
-						rf.electionRandomTimeout = rand.Intn(250) + 200
-						rf.electionElapsed = 0
-						Mi = time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
-						DEBUG(dVote, "S%d %3v vote start election cT(%d)\n", rf.me, Mi, rf.currentTerm)
-						//log.Printf("%v %d start a new election in %d!",  Mi, rf.me, rf.currentTerm)
-						go rf.requestvotes()
-						rf.mu.Unlock()
-						//continue
-					}
-				
-			}()
-
-			rf.mu.Lock()
-			rf.electionElapsed++
-			rf.mu.Unlock()
-			break
-		case "candidate":
-			// if rf.electionElapsed == 0 {
-			// 	Mi := time.Now().UnixNano() / 1e6  - time.Now().Unix()*1000
-			// 	log.Printf("%v %d start a new election in %d!",  Mi, rf.me, rf.currentTerm)
-			// 	go rf.requestvotes()
-			// }
-			time.Sleep(time.Millisecond)
-			go func() {
-				
-					if rf.electionElapsed >= rf.electionRandomTimeout {
-						rand.Seed(time.Now().UnixNano())
-						rf.mu.Lock()
-						rf.currentTerm++
-						rf.votedFor = -1
-						Mi := time.Now().UnixNano() / 1e6  //- time.Now().Unix()*1000
-						DEBUG(dTimer, "S%d %06v timeout vf(%d) cT(%d)\n", rf.me, Mi, rf.votedFor, rf.currentTerm)
-						//log.Printf("%d timeout votefor(%d) agin event in term(%d)", rf.me, rf.votedFor, rf.currentTerm)
-						rf.electionRandomTimeout = rand.Intn(250) + 200
-						rf.electionElapsed = 0
-						Mi = time.Now().UnixNano() / 1e6  //- time.Now().Unix()*1000 
-						DEBUG(dVote, "S%d %06v vote start election agin cT(%d)\n", rf.me, Mi, rf.currentTerm)
-						//log.Printf("%v %d start a new election in %d!",  Mi, rf.me, rf.currentTerm)
-						go rf.requestvotes()
-						rf.mu.Unlock()
-						//continue
-					}
-				
-			}()
-			rf.mu.Lock()
-			rf.electionElapsed++
-			rf.mu.Unlock()
-			break
-		case "leader":
-			DEBUG(dError, "S%v HB now: %v\n", rf.me, time.Now().UnixMilli())
+		time.Sleep(time.Millisecond)
+		DEBUG(dLog, "S%d SB time cand = %d \n", rf.me, rf.electionElapsed)
+		rf.electionElapsed ++
+	
+		rf.mu.Unlock()
+		ti := time.Since(start).Milliseconds()
 		
-			go rf.appendentries()
-			
-			time.Sleep(time.Millisecond*90)
-			break
-	}
+		log.Printf("S%d AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%d", rf.me, ti)
 	}
 }
 
@@ -729,7 +744,6 @@ func (rf *Raft) ticker() {
 //
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
-	LOGinit()
 	rf := &Raft{}
 	rf.peers = peers
 	rf.persister = persister
@@ -742,6 +756,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.electionRandomTimeout = rand.Intn(250) + 200
 	rf.persister.raftstate = []byte("follower")
 
+	LOGinit()
 	//atomic.StoreInt32(&rf.dead, 0)
 
 	// Your initialization code here (2A, 2B, 2C).

@@ -6,11 +6,11 @@ do
 # go test -run TestReElection2A >> test1.log
 # go test -run TestManyElections2A >> test1.log
 
-VERBOSE=1 go test -run TestInitialElection2A > output.log
+VERBOSE=1 go test   -run TestReElection2A > output.log
 echo $i
 if cat output.log | grep FAIL 
 then
-    python3 ./dslogs.py  output.log -c 7
+    python3 ./dslogs.py  output.log -c 3
     break
 fi
 done

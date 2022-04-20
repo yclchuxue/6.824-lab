@@ -10,6 +10,7 @@ package raft
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -58,19 +59,22 @@ func TestReElection2A(t *testing.T) {
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2A): election after network failure")
-
+	log.Printf("1")
 	leader1 := cfg.checkOneLeader()
 
+	log.Printf("2")
 	// if the leader disconnects, a new one should be elected.
 	cfg.disconnect(leader1)
 	cfg.checkOneLeader()
 
+	log.Printf("3 ")
 	// if the old leader rejoins, that shouldn't
 	// disturb the new leader. and the old leader
 	// should switch to follower.
 	cfg.connect(leader1)
 	leader2 := cfg.checkOneLeader()
 
+	log.Printf("4")
 	// if there's no quorum, no new leader should
 	// be elected.
 	cfg.disconnect(leader2)
@@ -81,10 +85,12 @@ func TestReElection2A(t *testing.T) {
 	// does not think it is the leader.
 	cfg.checkNoLeader()
 
+	log.Printf("5")
 	// if a quorum arises, it should elect a leader.
 	cfg.connect((leader2 + 1) % servers)
 	cfg.checkOneLeader()
 
+	log.Printf("6")
 	// re-join of last node shouldn't prevent leader from existing.
 	cfg.connect(leader2)
 	cfg.checkOneLeader()
@@ -109,7 +115,7 @@ func TestManyElections2A(t *testing.T) {
 		i3 := rand.Int() % servers
 
 		DEBUG(dLog, "dis %d %d %d\n", i1, i2, i3)
-		DEBUG(dError, "S0 test start now: %v", time.Now().UnixMilli())
+		DEBUG(dError, "S0 test start now: %v\n", time.Now().UnixMilli())
 		cfg.disconnect(i1)
 		cfg.disconnect(i2)
 		cfg.disconnect(i3)
