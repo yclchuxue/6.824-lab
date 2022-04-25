@@ -504,6 +504,8 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 
 		cfg.mu.Lock()
 		cmd1, ok := cfg.logs[i][index]
+
+		//DEBUG(dLog2, "S0 %v %v\n", cmd1, ok)
 		cfg.mu.Unlock()
 
 		if ok {

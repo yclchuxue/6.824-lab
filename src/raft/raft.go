@@ -19,7 +19,7 @@ package raft
 
 import (
 	//	"bytes"
-	"log"
+	// "log"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -52,6 +52,11 @@ type ApplyMsg struct {
 	SnapshotIndex int
 }
 
+type LogNode struct {
+	logterm  int
+	log interface{}
+}
+
 //
 // A Go object implementing a single Raft peer.
 //
@@ -67,17 +72,26 @@ type Raft struct {
 
 	votedFor int
 
-	state int //follower       candidate         leader
+	state int //follower0       candidate1         leader2
 
 	electionRandomTimeout int
 	electionElapsed       int
+
+	log []LogNode
+
+	commitIndex int
+
+	lastApplied int
+
+	nextIndex []int
+
+	matchIndex []int
 
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
 }
-
 
 // return currentTerm and whether this server
 // believes it is the leader.
@@ -162,6 +176,10 @@ type RequestVoteArgs struct {
 	//Work string  		//请求类型
 	Term        int //候选者的任期
 	CandidateId int //候选者的编号
+
+	LastLogIndex int
+
+	LastLogIterm int
 }
 
 //
@@ -178,10 +196,17 @@ type RequestVoteReply struct {
 type AppendEntriesArgs struct {
 	Term     int //leader任期
 	LeaderId int //用来follower重定向到leader
+
+	PrevLogIndex int
+	PrevLogIterm int
+	Entries      []LogNode
+
+	LeaderCommit int
 }
 
 type AppendEntriesReply struct {
-	Term int //当前任期，leader用来更新自己
+	Term    int //当前任期，leader用来更新自己
+	Success bool
 }
 
 //
@@ -209,7 +234,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		//log.Printf("%v %d requestvote from %d becouse args.Term(%d) and currentTerm(%d) and votefor(%d)",   rf.me, args.CandidateId, args.Term, rf.currentTerm, rf.votedFor)
 		//rf.
 		rf.currentTerm = args.Term
-		rf.state = 1
+		rf.state = 0
 		rf.leaderId = -1
 		DEBUG(dVote, "S%d  vote be -1' follower cT(%d) < T(%d)\n", rf.me, rf.currentTerm, args.Term)
 		//log.Printf("%d become follower because of currenTerm(%d), < T(%d)", rf.me, rf.currentTerm, args.Term)
@@ -249,7 +274,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.Term >= rf.currentTerm { //收到心跳包的任期不低于当前任期
 
 		rf.electionElapsed = 0
-		// rf.votedFor = -1
 		rand.Seed(time.Now().UnixNano())
 		rf.electionRandomTimeout = rand.Intn(250) + 200
 		if args.Term > rf.currentTerm {
@@ -257,20 +281,18 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 
 		DEBUG(dLeader, "S%d  app vf(%d)\n", rf.me, rf.votedFor)
-		//log.Printf("%d votefor(%d)",rf.me, rf.votedFor)
 		rf.currentTerm = args.Term
-		//if string(rf.state) != 1 {
 		if rf.leaderId != args.LeaderId {
 
 			DEBUG(dLeader, "S%d  app be follower\n", rf.me)
-			// log.Printf("%d become %d's follower!", rf.me, args.LeaderId)
 		}
 		rf.leaderId = args.LeaderId
-		rf.state = 1
+		rf.state = 0
 
 		reply.Term = args.Term
 	} else { //args.term < currentTerm
 		reply.Term = rf.currentTerm
+		reply.Success = false
 	}
 	rf.mu.Unlock()
 }
@@ -332,11 +354,63 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index := -1
 	term := -1
-	isLeader := true
+	isLeader := false
 
 	// Your code here (2B).
+	rf.mu.Lock()
+	if rf.state == 2 {
+		isLeader = true
+
+		com := LogNode{
+			logterm:  rf.currentTerm,
+			log: command,
+		}
+		
+		rf.log = append(rf.log, com)
+
+		term = rf.currentTerm
+		index = rf.nextIndex[rf.me]
+
+		rf.nextIndex[rf.me]++
+	}
+	rf.mu.Unlock()
 
 	return index, term, isLeader
+}
+
+func (rf *Raft) sendlog(term int) {
+
+	var wg sync.WaitGroup
+
+	wg.Add(len(rf.peers)-1)
+
+	for it := range rf.peers {
+		if it != rf.me {
+			go func (it int, term int)  {
+				args := AppendEntriesArgs{}
+				args.Term = term
+				args.LeaderId = rf.me
+				rf.mu.Lock()
+
+				args.PrevLogIndex = rf.nextIndex[it]-1
+
+				args.PrevLogIterm = rf.log[args.PrevLogIndex].logterm
+
+				args.Entries = rf.log[rf.nextIndex[it]:]
+
+				rf.mu.Unlock()
+				reply := AppendEntriesReply{}
+
+				ok := rf.sendAppendEntries(it, &args, &reply)
+
+				if ok {
+
+				}
+
+			}(it, term)
+		}
+	}
+
 }
 
 //
@@ -364,7 +438,7 @@ func (rf *Raft) appendentries(term int) {
 
 	var wg sync.WaitGroup
 
-	wg.Add(len(rf.peers)-1)
+	wg.Add(len(rf.peers) - 1)
 
 	for it := range rf.peers {
 		if it != rf.me {
@@ -378,32 +452,27 @@ func (rf *Raft) appendentries(term int) {
 
 				DEBUG(dLeader, "S%d  app -> %d cT(%d)\n", rf.me, it, term)
 
-				//log.Printf("%v %d send to %d heart in currentTerm(%d)",   rf.me, it, rf.currentTerm)
-				//if term == rf.currentTerm {
 
-					ok := rf.sendAppendEntries(it, &args, &reply)
-					rf.mu.Lock()
-					//start := time.Now()
-					if ok {
-						if reply.Term > rf.currentTerm {
+				ok := rf.sendAppendEntries(it, &args, &reply)
+				rf.mu.Lock()
+				if ok {
+					if reply.Term > rf.currentTerm {
 
-							DEBUG(dLeader, "S%d  app be %d's follower T(%d)\n", rf.me, -1, reply.Term)
-							//log.Printf("%d become %d' follower int term(%d)", rf.me, -1, reply.Term)
-							//atomic.StoreInt64(&becomefollower, int64(reply.Term))
-							rf.currentTerm = reply.Term
-							rf.votedFor = -1
-							rf.leaderId = -1 //int(Id)
-							rf.state = 1
-							rf.electionElapsed = 0
-							rand.Seed(time.Now().UnixNano())
-							rf.electionRandomTimeout = rand.Intn(250) + 200
-						}
-					} else {
-
-						DEBUG(dLeader, "S%d  app -> %d fail cT(%d)\n", rf.me, it, term)
-						//log.Printf("%d send heart call to %d fail int term(%d)", rf.me, it, args.Term)
+						DEBUG(dLeader, "S%d  app be %d's follower T(%d)\n", rf.me, -1, reply.Term)
+						rf.currentTerm = reply.Term
+						rf.votedFor = -1
+						rf.leaderId = -1 //int(Id)
+						rf.state = 0
+						rf.electionElapsed = 0
+						rand.Seed(time.Now().UnixNano())
+						rf.electionRandomTimeout = rand.Intn(250) + 200
 					}
-					rf.mu.Unlock()
+				} else {
+
+					DEBUG(dLeader, "S%d  app -> %d fail cT(%d)\n", rf.me, it, term)
+					//log.Printf("%d send heart call to %d fail int term(%d)", rf.me, it, args.Term)
+				}
+				rf.mu.Unlock()
 				//}
 
 				wg.Done()
@@ -470,7 +539,7 @@ func (rf *Raft) requestvotes(term int) {
 						if reply.Term > rf.currentTerm {
 							rf.currentTerm = reply.Term
 							rf.leaderId = -1
-							rf.state = 1
+							rf.state = 0
 							rf.votedFor = -1
 							rf.electionElapsed = 0
 							rand.Seed(time.Now().UnixNano())
@@ -538,15 +607,15 @@ func (rf *Raft) ticker() {
 		//start := time.Now()
 		//ti := time.Since(start).Milliseconds()
 		//log.Printf("S%d AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%d", rf.me, ti)
-		DEBUG(dLog, "S%d SB time = %d\n", rf.me, rf.electionElapsed)
+		//DEBUG(dLog, "S%d SB time = %d\n", rf.me, rf.electionElapsed)
 
 		rf.electionElapsed++
 
 		rf.mu.Unlock()
-		start := time.Now()
+		//start := time.Now()
 		time.Sleep(time.Millisecond)
-		ti := time.Since(start).Milliseconds()
-		log.Printf("S%d AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%d\n", rf.me, ti)
+		//ti := time.Since(start).Milliseconds()
+		//log.Printf("S%d AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%d\n", rf.me, ti)
 
 	}
 }
@@ -574,7 +643,23 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.electionElapsed = 0
 	rand.Seed(time.Now().UnixNano())
 	rf.electionRandomTimeout = rand.Intn(250) + 200
-	rf.state = 1
+	rf.state = 0
+
+	rf.log = []LogNode{}
+
+	rf.log = append(rf.log, LogNode{
+		logterm: 0,
+	})
+
+	for i:=0; i < len(peers) ; i++ {
+		rf.nextIndex = append(rf.nextIndex, 1)
+		rf.matchIndex = append(rf.matchIndex, 0)
+	}
+
+	rf.commitIndex = 0
+	rf.lastApplied = 0
+
+
 
 	LOGinit()
 	//atomic.StoreInt32(&rf.dead, 0)
