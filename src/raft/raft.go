@@ -19,8 +19,8 @@ package raft
 
 import (
 	//	"bytes"
-	// "log"
-	"fmt"
+	"log"
+	// "fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -54,8 +54,9 @@ type ApplyMsg struct {
 }
 
 type LogNode struct {
-	Logterm int
-	Log     interface{}
+	LogIndex int
+	Logterm  int
+	Log      interface{}
 }
 
 //
@@ -226,38 +227,18 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 		DEBUG(dVote, "S%d  vote <- %d T(%d) < cT(%d) A\n", rf.me, args.CandidateId, args.Term, rf.currentTerm)
 		//log.Printf("%v %d requestvote from %d but not vote in args.Term(%d) and currentTerm(%d) A",   rf.me, args.CandidateId, args.Term, rf.currentTerm)
-	} else if rf.currentTerm < args.Term { //候选者任期高于自己
+	} else if rf.currentTerm <= args.Term { //候选者任期高于自己
 
-		if args.LastLogIterm >= rf.log[rf.matchIndex[rf.me]].Logterm {
-			if args.LastLogIndex >= rf.matchIndex[rf.me] {
-				reply.VoteGranted = true
-				reply.Term = args.Term
+		if rf.currentTerm < args.Term {
+			rf.currentTerm = args.Term
+			rf.votedFor = -1
+			rf.state = 0
 
-				rf.votedFor = args.CandidateId
-				DEBUG(dVote, "S%d  vote <- %d  T(%d) > cT(%d) vf(%d) A\n", rf.me, args.CandidateId, args.Term, rf.currentTerm, rf.votedFor)
-
-				rf.currentTerm = args.Term
-				rf.state = 0
-				rf.leaderId = -1
-				DEBUG(dVote, "S%d  vote be -1' follower cT(%d) < T(%d)\n", rf.me, rf.currentTerm, args.Term)
-
-				rf.electionElapsed = 0
-				rand.Seed(time.Now().UnixNano())
-				rf.electionRandomTimeout = rand.Intn(250) + 200
-			} else {
-				DEBUG(dVote, "S%d  vote <- %d not logIn(%d) < rf.logIn(%d) vf(%d)\n", rf.me, args.CandidateId, args.LastLogIndex, rf.matchIndex[rf.me], rf.votedFor)
-
-				reply.VoteGranted = false
-				reply.Term = args.Term
-			}
-		} else {
-			DEBUG(dVote, "S%d  vote <- %d not logT(%d) < rf.logT(%d) vf(%d)\n", rf.me, args.CandidateId, args.LastLogIterm, rf.log[rf.matchIndex[rf.me]].Logterm, rf.votedFor)
-
-			reply.VoteGranted = false
-			reply.Term = args.Term
+			rf.electionElapsed = 0
+			rand.Seed(time.Now().UnixNano())
+			rf.electionRandomTimeout = rand.Intn(250) + 200
 		}
 
-	} else {
 		if rf.votedFor == -1 || rf.votedFor == args.CandidateId { //任期相同且未投票或者候选者和上次相同
 			//if 日志至少和自己一样新
 			if args.LastLogIterm >= rf.log[rf.matchIndex[rf.me]].Logterm {
@@ -266,9 +247,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 					rand.Seed(time.Now().UnixNano())
 					rf.electionRandomTimeout = rand.Intn(250) + 200
 					rf.votedFor = args.CandidateId
-
-					DEBUG(dVote, "S%d  voye <- %d T(%d) = cT(%d) vf(%d)\n", rf.me, args.CandidateId, args.Term, rf.currentTerm, rf.votedFor)
-
+					rf.state = 0
+					rf.leaderId = -1
+					DEBUG(dVote, "S%d  vote <- %d T(%d) = cT(%d) vf(%d)\n", rf.me, args.CandidateId, args.Term, rf.currentTerm, rf.votedFor)
+					// rf.currentTerm = args.Term
 					reply.VoteGranted = true
 					reply.Term = args.Term
 				} else {
@@ -298,7 +280,11 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
-	DEBUG(dLeader, "S%d  app <- %d T(%d) cT(%d)\n", rf.me, args.LeaderId, args.Term, rf.currentTerm)
+	if len(args.Entries) != 0 {
+		DEBUG(dLeader, "S%d  app <- %d T(%d) cT(%d)\n", rf.me, args.LeaderId, args.Term, rf.currentTerm)
+	} else {
+		DEBUG(dLeader, "S%d  heart <- %d T(%d) cT(%d)\n", rf.me, args.LeaderId, args.Term, rf.currentTerm)
+	}
 	//log.Printf("%v %d heart from %d in args.Term(%d) and currentTerm(%d)",   rf.me, args.LeaderId, args.Term, rf.currentTerm)
 	if args.Term >= rf.currentTerm { //收到心跳包的任期不低于当前任期
 
@@ -310,42 +296,57 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			rf.votedFor = -1
 		}
 
-		DEBUG(dLeader, "S%d  app vf(%d)\n", rf.me, rf.votedFor)
+		// DEBUG(dLeader, "S%d  app vf(%d)\n", rf.me, rf.votedFor)
 		rf.currentTerm = args.Term
 		if rf.leaderId != args.LeaderId {
 
-			DEBUG(dLeader, "S%d  app be follower\n", rf.me)
+			DEBUG(dLog, "S%d be follower\n", rf.me)
 		}
 		rf.leaderId = args.LeaderId
 		rf.state = 0
 		//DEBUG(dLog, "S%d T(%d) index(%d) oT(%d) oin(%d) %d\n",rf.me, args.PrevLogIterm, args.PrevLogIndex, rf.log[rf.matchIndex[rf.me]].Logterm, rf.matchIndex[rf.me] , len(args.Entries))
-		if len(args.Entries) != 0 {
-			if rf.matchIndex[rf.me] >= args.PrevLogIndex {
-				if args.PrevLogIterm == rf.log[args.PrevLogIndex].Logterm {
+		//if len(args.Entries) != 0 {
+		if rf.matchIndex[rf.me] >= args.PrevLogIndex {
+			if args.PrevLogIterm == rf.log[args.PrevLogIndex].Logterm {
 
-					for _, value := range args.Entries {
+				index := args.PrevLogIndex + 1
+
+				for _, value := range args.Entries {
+
+					if rf.matchIndex[rf.me] >= index {
+						DEBUG(dLog, "S%d mat(%d) index(%d) len(%d)\n", rf.me, rf.matchIndex[rf.me], index, len(rf.log))
+						if rf.log[index].Logterm == value.Logterm {
+							index++
+						} else {
+							rf.log = rf.log[:index]
+							rf.matchIndex[rf.me] = index - 1
+						}
+					} else {
 						rf.log = append(rf.log, value)
+						DEBUG(dLog, "S%d success + log(%v)\n", rf.me, value)
 						rf.matchIndex[rf.me]++
+						index++
 					}
-					reply.Success = true
-					DEBUG(dLog, "S%d success\n", rf.me)
-				} else {
-					reply.Success = false
 				}
-			} else { //不匹配
+				reply.Success = true
+
+			} else {
+				rf.log = rf.log[:args.PrevLogIndex]
 				reply.Success = false
 			}
-		} else {
-			reply.Success = true
+		} else { //不匹配
+			reply.Success = false
 		}
 
 		if args.LeaderCommit > rf.commitIndex {
-			if rf.matchIndex[rf.me] < args.LeaderCommit {
+			if rf.matchIndex[rf.me] <= args.LeaderCommit {
 				rf.commitIndex = rf.matchIndex[rf.me]
-			}else{
+			} else {
 				rf.commitIndex = args.LeaderCommit
 			}
+			DEBUG(dLog, "S%d update commit(%d)\n", rf.me, rf.commitIndex)
 		}
+
 		reply.Term = args.Term
 	} else { //args.term < currentTerm
 		reply.Term = rf.currentTerm
@@ -414,23 +415,28 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := false
 
 	// Your code here (2B).
-	rf.mu.Lock()
-	if rf.state == 2 {
-		isLeader = true
 
-		com := LogNode{
-			Logterm: rf.currentTerm,
-			Log:     command,
+	if rf.killed() == false {
+		rf.mu.Lock()
+		if rf.state == 2 {
+			isLeader = true
+
+			com := LogNode{
+				Logterm:  rf.currentTerm,
+				Log:      command,
+				LogIndex: rf.matchIndex[rf.me] + 1,
+			}
+
+			rf.log = append(rf.log, com)
+			rf.matchIndex[rf.me]++
+			term = rf.currentTerm
+			index = rf.matchIndex[rf.me]
+
+			// rf.electionElapsed = 0
+			// go rf.appendentries(rf.currentTerm, index)
 		}
-
-		rf.log = append(rf.log, com)
-		rf.matchIndex[rf.me]++
-		term = rf.currentTerm
-		index = rf.matchIndex[rf.me]
-
-		go rf.appendentries(rf.currentTerm, index)
+		rf.mu.Unlock()
 	}
-	rf.mu.Unlock()
 
 	return index, term, isLeader
 }
@@ -441,31 +447,40 @@ func (rf *Raft) appendentries(term int, index int) {
 
 	successnum := 1
 
-	len := len(rf.peers)
+	le := len(rf.peers)
 
-	wg.Add(len - 1)
+	wg.Add(le - 1)
+
+	//start := time.Now()
 
 	for it := range rf.peers {
 		if it != rf.me {
-			go func(it int, term int) {
+			go func(it int, term int, index int) {
 				for {
 					args := AppendEntriesArgs{}
 					args.Term = term
 					args.LeaderId = rf.me
 					rf.mu.Lock()
-					if index != 0 {
-						args.PrevLogIndex = rf.nextIndex[it] - 1
-						//DEBUG(dLog, "S%d args.PrevIndex = %d, next(%d) index(%d)\n", rf.me, args.PrevLogIndex, rf.nextIndex[it], index)
-						args.PrevLogIterm = rf.log[args.PrevLogIndex].Logterm
 
+					args.PrevLogIndex = rf.nextIndex[it] - 1
+
+					DEBUG(dLeader, "S%d app -> %d next(%d) index(%d)\n", rf.me, it, rf.nextIndex[it], index)
+
+					//DEBUG(dLog, "S%d args.PrevIndex = %d, next(%d) index(%d)\n", rf.me, args.PrevLogIndex, rf.nextIndex[it], index)
+					args.PrevLogIterm = rf.log[args.PrevLogIndex].Logterm
+
+					if index >= rf.nextIndex[it] {
 						args.Entries = rf.log[rf.nextIndex[it] : index+1]
+					}
+					for _, val := range args.Entries {
+						DEBUG(dLeader, "S%d send %v\n", rf.me, val)
 					}
 
 					//附加commitIndex，让follower应用日志
 					args.LeaderCommit = rf.commitIndex
 
-
 					rf.mu.Unlock()
+
 					reply := AppendEntriesReply{}
 
 					ok := rf.sendAppendEntries(it, &args, &reply)
@@ -473,13 +488,16 @@ func (rf *Raft) appendentries(term int, index int) {
 					rf.mu.Lock()
 					if ok {
 						if reply.Success {
-							rf.matchIndex[it] = index //更新follower的最新日志位置
-							rf.nextIndex[it] = index+1
+
 							//统计复制成功的个数，超过半数就提交（修改commitindex）
-							if successnum != 0 && index == args.PrevLogIndex{
+							if successnum != 0 && index == args.PrevLogIndex+len(args.Entries) && len(args.Entries) != 0 {
+								rf.matchIndex[it] = index //更新follower的最新日志位置
+								rf.nextIndex[it] = index + 1
+								DEBUG(dLog, "S%d  S%d's nextindex(%d)\n", rf.me, it, rf.nextIndex[it])
 								successnum++
-								if successnum > len/2 {
-									DEBUG(dCommit,"S%d new commit(%d)\n", rf.me, index)
+								DEBUG(dLog, "S%d sum(%d) ban(%d)\n", rf.me, successnum, le/2)
+								if successnum > le/2 && index > rf.commitIndex {
+									DEBUG(dCommit, "S%d new commit(%d) and applied\n", rf.me, index)
 									rf.commitIndex = index
 								}
 							}
@@ -500,6 +518,7 @@ func (rf *Raft) appendentries(term int, index int) {
 							} else {
 								DEBUG(dLog, "S%d 匹配失败\n", rf.me)
 								rf.nextIndex[it]--
+								rf.mu.Unlock()
 							}
 						}
 					} else {
@@ -510,12 +529,13 @@ func (rf *Raft) appendentries(term int, index int) {
 					rf.mu.Unlock()
 				}
 				wg.Done()
-			}(it, term)
+			}(it, term, index)
 		}
 	}
 
 	wg.Wait()
-
+	//ti := time.Since(start).Milliseconds()
+	//log.Printf("S%d AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%d", rf.me, ti)
 }
 
 //
@@ -539,38 +559,40 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
-func (rf *Raft) requestvotes(term int) {
+func (rf *Raft) requestvotes(term int, index int) {
 
 	rf.mu.Lock()
 	truenum := int64(1)
 	peers := len(rf.peers)
 	rf.votedFor = rf.me
 	DEBUG(dVote, "S%d  vote vf(%d) to own\n", rf.me, rf.votedFor)
-
-	rf.mu.Unlock()
-
 	var wg sync.WaitGroup
 
+	
 	wg.Add(len(rf.peers) - 1)
+
+	rf.mu.Unlock()
 
 	for it := range rf.peers {
 		if it != rf.me {
 
-			go func(it int) {
+			go func(it int, term int, index int) {
 				args := RequestVoteArgs{}
 				reply := RequestVoteReply{}
 				args.CandidateId = rf.me
 				args.Term = term
 				rf.mu.Lock()
 
-				args.LastLogIndex = rf.matchIndex[rf.me]
-				args.LastLogIterm = rf.log[rf.matchIndex[rf.me]].Logterm
+				args.LastLogIndex = index
+				args.LastLogIterm = rf.log[index].Logterm
 
 				rf.mu.Unlock()
 
 				DEBUG(dVote, "S%d  vote -> %d cT(%d)\n", rf.me, it, term)
 				ok := rf.sendRequestVote(it, &args, &reply) //发起投票
+
 				rf.mu.Lock()
+				start := time.Now()
 				if ok {
 
 					if term != rf.currentTerm {
@@ -591,7 +613,15 @@ func (rf *Raft) requestvotes(term int) {
 							rf.state = 2
 							rf.electionElapsed = 0
 							rf.electionRandomTimeout = 90
-							go rf.appendentries(rf.currentTerm, 0)
+
+							for i := 0; i < len(rf.peers); i++ {
+								rf.nextIndex[i] = rf.matchIndex[rf.me] + 1
+								if i != rf.me {
+									rf.matchIndex[i] = 1
+								}
+							}
+
+							go rf.appendentries(rf.currentTerm, rf.matchIndex[rf.me])
 							DEBUG(dLeader, "S%d  be Leader B\n", rf.me)
 
 						}
@@ -610,32 +640,17 @@ func (rf *Raft) requestvotes(term int) {
 				} else {
 					DEBUG(dVote, "S%d vote -> %d fail\n", rf.me, it)
 				}
+				ti := time.Since(start).Milliseconds()
+				log.Printf("S%d BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB %d", rf.me, ti)
 				rf.mu.Unlock()
 				wg.Done()
-			}(it)
+			}(it, term, index)
 
 		}
 	}
 
 	wg.Wait()
-
-	// rf.mu.Lock()
-
-	// if atomic.LoadInt64(&truenum) > int64(peers/2) && rf.state == 1 { //票数过半
-
-	// 	DEBUG(dVote, "S%d  have %d votes T(%d) cT(%d) %d D\n", rf.me, truenum, term, rf.currentTerm, peers/2)
-	// 	//log.Printf("%v %d have %d votes in term(%d) but currentterm(%d)! %d D",   rf.me, truenum, term, rf.currentTerm, peers/2)
-	// 	if term == rf.currentTerm {
-	// 		rf.electionElapsed = 0
-	// 		rf.state = 2
-	// 		rf.electionRandomTimeout = 90
-	// 		go rf.appendentries(rf.currentTerm, 0)
-	// 		DEBUG(dVote, "S%d  be Leader! B\n", rf.me)
-	// 	}
-	// } else {
-	// 	DEBUG(dVote, "S%d  have %d votes T(%d) cT(%d) %d C\n", rf.me, truenum, term, rf.currentTerm, peers/2)
-	// }
-	// rf.mu.Unlock()
+	
 
 }
 
@@ -645,7 +660,7 @@ func (rf *Raft) ticker() {
 
 	for rf.killed() == false {
 
-		//start := time.Now()
+		start := time.Now()
 		rf.mu.Lock()
 
 		if rf.electionElapsed >= rf.electionRandomTimeout {
@@ -655,19 +670,18 @@ func (rf *Raft) ticker() {
 			if rf.state == 2 {
 				rf.electionRandomTimeout = 90
 
-				go rf.appendentries(rf.currentTerm, 0)
+				go rf.appendentries(rf.currentTerm, rf.matchIndex[rf.me])
 			} else {
 				rf.currentTerm++
 				rf.state = 1
 				rf.votedFor = -1
-				go rf.requestvotes(rf.currentTerm)
+				go rf.requestvotes(rf.currentTerm, rf.matchIndex[rf.me])
 			}
 		}
 
 		//start := time.Now()
-		//ti := time.Since(start).Milliseconds()
-		//log.Printf("S%d AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%d", rf.me, ti)
-		//DEBUG(dLog, "S%d SB time = %d\n", rf.me, rf.electionElapsed)
+		ti := time.Since(start).Milliseconds()
+		log.Printf("S%d AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%d", rf.me, ti)
 
 		rf.electionElapsed++
 
@@ -716,12 +730,41 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		rf.matchIndex = append(rf.matchIndex, 0)
 	}
 
-	for _, it := range rf.nextIndex {
-		fmt.Println(it)
-	}
+	// for _, it := range rf.nextIndex {
+	// 	fmt.Println(it)
+	// }
 
 	rf.commitIndex = 0
 	rf.lastApplied = 0
+
+	go func() {
+		for {
+			rf.mu.Lock()
+
+			commit := rf.commitIndex
+			applied:= rf.lastApplied
+
+			rf.mu.Unlock()
+			if commit > applied {
+				for _, it := range rf.log[applied+1 : commit+1] {
+
+					node := ApplyMsg{
+						CommandValid: true,
+						Command:      it.Log,
+						CommandIndex: it.LogIndex,
+					}
+					DEBUG(dLog, "S%d lognode = %v\n", rf.me, node)
+
+					applyCh <- node
+				}
+				rf.mu.Lock()
+				rf.lastApplied = commit
+				rf.mu.Unlock()
+
+				DEBUG(dLog, "S%d comm(%d) last(%d)\n", rf.me, commit, rf.lastApplied)
+			}
+		}
+	}()
 
 	LOGinit()
 	//atomic.StoreInt32(&rf.dead, 0)
@@ -736,53 +779,3 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	return rf
 }
-
-// func (rf *Raft) appendentries(term int, index int) {
-
-// 	var wg sync.WaitGroup
-
-// 	wg.Add(len(rf.peers) - 1)
-
-// 	for it := range rf.peers {
-// 		if it != rf.me {
-
-// 			go func(it int, term int) {
-
-// 				args := AppendEntriesArgs{}
-// 				args.Term = term
-// 				args.LeaderId = rf.me
-// 				reply := AppendEntriesReply{}
-
-// 				DEBUG(dLeader, "S%d  app -> %d cT(%d)\n", rf.me, it, term)
-
-// 				ok := rf.sendAppendEntries(it, &args, &reply)
-// 				rf.mu.Lock()
-// 				if ok {
-// 					if reply.Term > rf.currentTerm {
-
-// 						DEBUG(dLeader, "S%d  app be %d's follower T(%d)\n", rf.me, -1, reply.Term)
-// 						rf.currentTerm = reply.Term
-// 						rf.votedFor = -1
-// 						rf.leaderId = -1 //int(Id)
-// 						rf.state = 0
-// 						rf.electionElapsed = 0
-// 						rand.Seed(time.Now().UnixNano())
-// 						rf.electionRandomTimeout = rand.Intn(250) + 200
-// 					}
-// 				} else {
-
-// 					DEBUG(dLeader, "S%d  app -> %d fail cT(%d)\n", rf.me, it, term)
-// 					//log.Printf("%d send heart call to %d fail int term(%d)", rf.me, it, args.Term)
-// 				}
-// 				rf.mu.Unlock()
-// 				//}
-
-// 				wg.Done()
-
-// 			}(it, term)
-
-// 		}
-// 	}
-
-// 	wg.Wait()
-// }

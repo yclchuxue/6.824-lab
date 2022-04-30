@@ -285,7 +285,7 @@ func For2023TestLeaderFailure2B(t *testing.T) {
 // test that a follower participates after
 // disconnect and re-connect.
 //
-func TestFailAgree2B(t *testing.T) {
+func TestFailAgree2B(t *testing.T) {  //5
 	servers := 3
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
