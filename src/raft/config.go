@@ -610,7 +610,9 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 		}
 	}
 	if cfg.checkFinished() == false {
-		cfg.t.Fatalf("B one(%v) failed to reach agreement", cmd)
+		DEBUG(dLog, "AAAAAAAAAAAAAAAAAB\n")
+		cfg.t.Fatalf("BA one(%v) failed to reach agreement", cmd)
+		DEBUG(dLog, "AAAAAAAAAAAAAAAAA\n")
 	}
 	return -1
 }

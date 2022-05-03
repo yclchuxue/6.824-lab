@@ -505,7 +505,6 @@ func TestRejoin2B(t *testing.T) {
 	cfg.connect(leader2)
 
 	cfg.one(105, servers, true)
-
 	cfg.end()
 }
 
@@ -691,6 +690,7 @@ loop:
 	cfg.end()
 }
 
+
 func TestPersist12C(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
@@ -709,6 +709,13 @@ func TestPersist12C(t *testing.T) {
 		cfg.connect(i)
 	}
 
+	// for i, rf := range cfg.rafts {
+	// 	fmt.Printf("S%d Term = %d\n", i, rf.commitIndex)
+	// 	fmt.Printf("S%d votefor = %d\n", i, rf.votedFor)
+	// 	for j, log := range rf.log{
+	// 		fmt.Printf("S%d index = %d log = %v\n", i, j, log)
+	// 	}
+	// }
 	cfg.one(12, servers, true)
 
 	leader1 := cfg.checkOneLeader()

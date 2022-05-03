@@ -13,15 +13,25 @@ do
 # 6 TestFailNoAgree2B       5
 # 7 TestConcurrentStarts2B
 # 8 TestRejoin2B
-# 9 TestBackup2B
+# 9 TestBackup2B 5
 # 10 TestCount2B
 
-VERBOSE=1 go test -run 2A > output.log
+# 1 TestPersist12C
+# 2 TestPersist22C 5
+# 3 TestPersist32C
+# 4 TestFigure82C  5
+# 5 TestUnreliableAgree2C 5
+# 6 TestFigure8Unreliable2C 5
+# 7 TestReliableChurn2C  5
+# 8 TestUnreliableChurn2C  5
+
+
+VERBOSE=1 go test -run TestPersist22C > output.log
 echo $i
 if cat output.log | grep FAIL 
 then
     # cat output.log >> output1.log
-    python3 ./dslogs.py  output.log -c 3
+    python3 ./dslogs.py  output.log -c 5
     break
 fi
 done

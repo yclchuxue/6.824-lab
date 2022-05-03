@@ -19,14 +19,15 @@ package raft
 
 import (
 	//	"bytes"
-	"log"
+	// "log"
 	// "fmt"
+	"bytes"
 	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	//	"6.824/labgob"
+	"6.824/labgob"
 	"6.824/labrpc"
 )
 
@@ -111,6 +112,12 @@ func (rf *Raft) GetState() (int, bool) {
 	return term, isleader
 }
 
+type Per struct{
+	Term int
+	Log []LogNode
+	VotedFor int
+}
+
 //
 // save Raft's persistent state to stable storage,
 // where it can later be retrieved after a crash and restart.
@@ -119,12 +126,18 @@ func (rf *Raft) GetState() (int, bool) {
 func (rf *Raft) persist() {
 	// Your code here (2C).
 	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// data := w.Bytes()
-	// rf.persister.SaveRaftState(data)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+
+	var Usr Per
+
+	Usr.Log = rf.log
+	Usr.Term = rf.currentTerm
+	Usr.VotedFor = rf.votedFor
+
+	e.Encode(Usr)
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 //
@@ -134,6 +147,24 @@ func (rf *Raft) readPersist(data []byte) {
 	if data == nil || len(data) < 1 { // bootstrap without any state?
 		return
 	}
+
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	//var term int
+	//var log []LogNode
+	//var votedFor int
+
+	var Usr Per
+
+	if	d.Decode(&Usr) != nil {
+		DEBUG(dWarn, "S%d labgob fail\n", rf.me)
+	} else {
+		DEBUG(dLog, "S%d ??? Term = %d log(%v) votefor(%d)\n", rf.me, Usr.Term, Usr.Log, Usr.VotedFor)
+		rf.currentTerm = Usr.Term
+		rf.log = Usr.Log
+		rf.votedFor = Usr.VotedFor
+	}
+
 	// Your code here (2C).
 	// Example:
 	// r := bytes.NewBuffer(data)
@@ -209,6 +240,9 @@ type AppendEntriesArgs struct {
 type AppendEntriesReply struct {
 	Term    int //当前任期，leader用来更新自己
 	Success bool
+
+	Logterm        int
+	Termfirstindex int
 }
 
 //
@@ -236,16 +270,17 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 			rf.electionElapsed = 0
 			rand.Seed(time.Now().UnixNano())
-			rf.electionRandomTimeout = rand.Intn(250) + 200
+			rf.electionRandomTimeout = rand.Intn(100) + 400
 		}
 
 		if rf.votedFor == -1 || rf.votedFor == args.CandidateId { //任期相同且未投票或者候选者和上次相同
 			//if 日志至少和自己一样新
 			if args.LastLogIterm >= rf.log[rf.matchIndex[rf.me]].Logterm {
-				if args.LastLogIndex >= rf.matchIndex[rf.me] {
+				if args.LastLogIndex >= rf.matchIndex[rf.me] ||
+					args.LastLogIterm > rf.log[rf.matchIndex[rf.me]].Logterm {
 					rf.electionElapsed = 0
 					rand.Seed(time.Now().UnixNano())
-					rf.electionRandomTimeout = rand.Intn(250) + 200
+					rf.electionRandomTimeout = rand.Intn(100) + 400
 					rf.votedFor = args.CandidateId
 					rf.state = 0
 					rf.leaderId = -1
@@ -290,7 +325,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 		rf.electionElapsed = 0
 		rand.Seed(time.Now().UnixNano())
-		rf.electionRandomTimeout = rand.Intn(250) + 200
+		rf.electionRandomTimeout = rand.Intn(100) + 400
 
 		if args.Term > rf.currentTerm {
 			rf.votedFor = -1
@@ -307,50 +342,75 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		//DEBUG(dLog, "S%d T(%d) index(%d) oT(%d) oin(%d) %d\n",rf.me, args.PrevLogIterm, args.PrevLogIndex, rf.log[rf.matchIndex[rf.me]].Logterm, rf.matchIndex[rf.me] , len(args.Entries))
 		//if len(args.Entries) != 0 {
 		if rf.matchIndex[rf.me] >= args.PrevLogIndex {
+			DEBUG(dLeader, "S%d PreT(%d) LT(%d)\n", rf.me, args.PrevLogIterm, rf.log[args.PrevLogIndex].Logterm)
 			if args.PrevLogIterm == rf.log[args.PrevLogIndex].Logterm {
 
 				index := args.PrevLogIndex + 1
 
 				for _, value := range args.Entries {
 
-					if rf.matchIndex[rf.me] >= index {
+					if len(rf.log)-1 >= index {
 						DEBUG(dLog, "S%d mat(%d) index(%d) len(%d)\n", rf.me, rf.matchIndex[rf.me], index, len(rf.log))
 						if rf.log[index].Logterm == value.Logterm {
 							index++
 						} else {
 							rf.log = rf.log[:index]
 							rf.matchIndex[rf.me] = index - 1
+							rf.log = append(rf.log, value)
+							DEBUG(dLog, "S%d A success + log(%v)\n", rf.me, value)
+							rf.matchIndex[rf.me] = len(rf.log) - 1
+							index++
 						}
 					} else {
 						rf.log = append(rf.log, value)
-						DEBUG(dLog, "S%d success + log(%v)\n", rf.me, value)
-						rf.matchIndex[rf.me]++
+						DEBUG(dLog, "S%d B success + log(%v)\n", rf.me, value)
+						rf.matchIndex[rf.me] = len(rf.log) - 1
 						index++
 					}
 				}
 				reply.Success = true
 
+				if args.LeaderCommit > rf.commitIndex {
+					if rf.matchIndex[rf.me] <= args.LeaderCommit {
+						rf.commitIndex = rf.matchIndex[rf.me]
+					} else {
+						rf.commitIndex = args.LeaderCommit
+					}
+					DEBUG(dLog, "S%d update commit(%d)\n", rf.me, rf.commitIndex)
+				}
+
 			} else {
-				rf.log = rf.log[:args.PrevLogIndex]
+
+				reply.Logterm = rf.log[args.PrevLogIndex].Logterm //冲突日志任期
+				i := args.PrevLogIndex
+				for rf.log[i].Logterm == reply.Logterm {
+					i--
+				}
+
+				reply.Termfirstindex = i + 1 //reply.Logterm任期内的第一条日志
+
+				rf.log = rf.log[:args.PrevLogIndex] //匹配失败，删除该日志条目及其后面的日志
 				reply.Success = false
+				DEBUG(dLeader, "S%d AAA fail\n", rf.me)
 			}
 		} else { //不匹配
-			reply.Success = false
-		}
-
-		if args.LeaderCommit > rf.commitIndex {
-			if rf.matchIndex[rf.me] <= args.LeaderCommit {
-				rf.commitIndex = rf.matchIndex[rf.me]
-			} else {
-				rf.commitIndex = args.LeaderCommit
+			reply.Logterm = rf.log[len(rf.log) - 1].Logterm //最新日志条目的任期
+			i := rf.matchIndex[rf.me]
+			for rf.log[i].Logterm == reply.Logterm {
+				i--
 			}
-			DEBUG(dLog, "S%d update commit(%d)\n", rf.me, rf.commitIndex)
+
+			reply.Termfirstindex = i + 1 //reply.Logterm任期内的第一条日志
+			reply.Success = false
+			DEBUG(dLeader, "S%d BBB fail ma(%d) pre(%d)\n", rf.me, rf.matchIndex[rf.me], args.PrevLogIndex)
 		}
 
 		reply.Term = args.Term
 	} else { //args.term < currentTerm
 		reply.Term = rf.currentTerm
 		reply.Success = false
+		DEBUG(dLeader, "S%d CCC fail\n", rf.me)
+		reply.Logterm = 0
 	}
 	rf.mu.Unlock()
 }
@@ -432,6 +492,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 			term = rf.currentTerm
 			index = rf.matchIndex[rf.me]
 
+			DEBUG(dLog, "S%d %v\n", rf.me, com)
 			// rf.electionElapsed = 0
 			// go rf.appendentries(rf.currentTerm, index)
 		}
@@ -456,78 +517,84 @@ func (rf *Raft) appendentries(term int, index int) {
 	for it := range rf.peers {
 		if it != rf.me {
 			go func(it int, term int, index int) {
-				for {
-					args := AppendEntriesArgs{}
-					args.Term = term
-					args.LeaderId = rf.me
-					rf.mu.Lock()
+				//for {
+				args := AppendEntriesArgs{}
+				args.Term = term
+				args.LeaderId = rf.me
+				rf.mu.Lock()
 
-					args.PrevLogIndex = rf.nextIndex[it] - 1
+				args.PrevLogIndex = rf.nextIndex[it] - 1
 
-					DEBUG(dLeader, "S%d app -> %d next(%d) index(%d)\n", rf.me, it, rf.nextIndex[it], index)
+				DEBUG(dLeader, "S%d app -> %d next(%d) index(%d) neT(%d) cT(%d)\n", rf.me, it, rf.nextIndex[it], index, rf.log[args.PrevLogIndex].Logterm, term)
 
-					//DEBUG(dLog, "S%d args.PrevIndex = %d, next(%d) index(%d)\n", rf.me, args.PrevLogIndex, rf.nextIndex[it], index)
-					args.PrevLogIterm = rf.log[args.PrevLogIndex].Logterm
+				//DEBUG(dLog, "S%d args.PrevIndex = %d, next(%d) index(%d)\n", rf.me, args.PrevLogIndex, rf.nextIndex[it], index)
+				args.PrevLogIterm = rf.log[args.PrevLogIndex].Logterm
 
-					if index >= rf.nextIndex[it] {
-						args.Entries = rf.log[rf.nextIndex[it] : index+1]
-					}
-					for _, val := range args.Entries {
-						DEBUG(dLeader, "S%d send %v\n", rf.me, val)
-					}
+				if index >= rf.nextIndex[it] {
+					args.Entries = rf.log[rf.nextIndex[it] : index+1]
+				}
+				for _, val := range args.Entries {
+					DEBUG(dLeader, "S%d send to %d %v\n", rf.me, it, val)
+				}
 
-					//附加commitIndex，让follower应用日志
-					args.LeaderCommit = rf.commitIndex
+				//附加commitIndex，让follower应用日志
+				args.LeaderCommit = rf.commitIndex
 
-					rf.mu.Unlock()
+				rf.mu.Unlock()
 
-					reply := AppendEntriesReply{}
+				reply := AppendEntriesReply{}
 
-					ok := rf.sendAppendEntries(it, &args, &reply)
+				ok := rf.sendAppendEntries(it, &args, &reply)
 
-					rf.mu.Lock()
-					if ok {
-						if reply.Success {
+				rf.mu.Lock()
+				// start := time.Now()
+				if ok {
+					if reply.Success {
 
-							//统计复制成功的个数，超过半数就提交（修改commitindex）
-							if successnum != 0 && index == args.PrevLogIndex+len(args.Entries) && len(args.Entries) != 0 {
-								rf.matchIndex[it] = index //更新follower的最新日志位置
-								rf.nextIndex[it] = index + 1
-								DEBUG(dLog, "S%d  S%d's nextindex(%d)\n", rf.me, it, rf.nextIndex[it])
-								successnum++
-								DEBUG(dLog, "S%d sum(%d) ban(%d)\n", rf.me, successnum, le/2)
-								if successnum > le/2 && index > rf.commitIndex {
-									DEBUG(dCommit, "S%d new commit(%d) and applied\n", rf.me, index)
-									rf.commitIndex = index
-								}
-							}
-							rf.mu.Unlock()
-							break
-						} else {
-							if reply.Term > rf.currentTerm {
-								DEBUG(dLeader, "S%d  app be %d's follower T(%d)\n", rf.me, -1, reply.Term)
-								rf.currentTerm = reply.Term
-								rf.votedFor = -1
-								rf.leaderId = -1 //int(Id)
-								rf.state = 0
-								rf.electionElapsed = 0
-								rand.Seed(time.Now().UnixNano())
-								rf.electionRandomTimeout = rand.Intn(250) + 200
-								rf.mu.Unlock()
-								break
-							} else {
-								DEBUG(dLog, "S%d 匹配失败\n", rf.me)
-								rf.nextIndex[it]--
-								rf.mu.Unlock()
+						//统计复制成功的个数，超过半数就提交（修改commitindex）
+						if successnum != 0 && index == args.PrevLogIndex+len(args.Entries) && len(args.Entries) != 0 {
+							rf.matchIndex[it] = index //更新follower的最新日志位置
+							rf.nextIndex[it] = index + 1
+							DEBUG(dLog, "S%d  S%d's nextindex(%d)\n", rf.me, it, rf.nextIndex[it])
+							successnum++
+							DEBUG(dLog, "S%d sum(%d) ban(%d)\n", rf.me, successnum, le/2)
+							if successnum > le/2 && index > rf.commitIndex {
+								DEBUG(dCommit, "S%d new commit(%d) and applied\n", rf.me, index)
+								rf.commitIndex = index
 							}
 						}
 					} else {
-						DEBUG(dWarn, "S%d -> %d app fail\n", rf.me, it)
-						rf.mu.Unlock()
-						break
+						if reply.Term > rf.currentTerm {
+							DEBUG(dLeader, "S%d  app be %d's follower T(%d)\n", rf.me, -1, reply.Term)
+							rf.currentTerm = reply.Term
+							rf.votedFor = -1
+							rf.leaderId = -1 //int(Id)
+							rf.state = 0
+							rf.electionElapsed = 0
+							rand.Seed(time.Now().UnixNano())
+							rf.electionRandomTimeout = rand.Intn(100) + 400
+						} else {
+							if reply.Logterm != 0 {
+								DEBUG(dLog, "S%d 匹配失败 tfi(%d)\n", rf.me, reply.Termfirstindex)
+
+								//跳过整个冲突任期----可能需要判断该index是否存在
+								if reply.Termfirstindex > 1 {
+									rf.nextIndex[it] = reply.Termfirstindex
+								} else {
+									rf.nextIndex[it] = 1
+								}
+							} else {
+								DEBUG(dLog, "S%d 任期低于对方\n", rf.me)
+							}
+						}
 					}
-					rf.mu.Unlock()
+				} else {
+					DEBUG(dWarn, "S%d -> %d app fail\n", rf.me, it)
 				}
+				// ti := time.Since(start).Milliseconds()
+				// log.Printf("S%d BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB %d", rf.me, ti)
+				rf.mu.Unlock()
+				//}
 				wg.Done()
 			}(it, term, index)
 		}
@@ -568,7 +635,6 @@ func (rf *Raft) requestvotes(term int, index int) {
 	DEBUG(dVote, "S%d  vote vf(%d) to own\n", rf.me, rf.votedFor)
 	var wg sync.WaitGroup
 
-	
 	wg.Add(len(rf.peers) - 1)
 
 	rf.mu.Unlock()
@@ -592,7 +658,7 @@ func (rf *Raft) requestvotes(term int, index int) {
 				ok := rf.sendRequestVote(it, &args, &reply) //发起投票
 
 				rf.mu.Lock()
-				start := time.Now()
+
 				if ok {
 
 					if term != rf.currentTerm {
@@ -614,6 +680,8 @@ func (rf *Raft) requestvotes(term int, index int) {
 							rf.electionElapsed = 0
 							rf.electionRandomTimeout = 90
 
+							rf.matchIndex[rf.me] = len(rf.log) - 1
+
 							for i := 0; i < len(rf.peers); i++ {
 								rf.nextIndex[i] = rf.matchIndex[rf.me] + 1
 								if i != rf.me {
@@ -633,15 +701,14 @@ func (rf *Raft) requestvotes(term int, index int) {
 							rf.votedFor = -1
 							rf.electionElapsed = 0
 							rand.Seed(time.Now().UnixNano())
-							rf.electionRandomTimeout = rand.Intn(250) + 200
+							rf.electionRandomTimeout = rand.Intn(100) + 400
 							DEBUG(dVote, "S%d vote T(%d) > cT(%d) be -1's follower vf(%d)\n", rf.me, term, rf.currentTerm, rf.votedFor)
 						}
 					}
 				} else {
 					DEBUG(dVote, "S%d vote -> %d fail\n", rf.me, it)
 				}
-				ti := time.Since(start).Milliseconds()
-				log.Printf("S%d BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB %d", rf.me, ti)
+
 				rf.mu.Unlock()
 				wg.Done()
 			}(it, term, index)
@@ -650,7 +717,6 @@ func (rf *Raft) requestvotes(term int, index int) {
 	}
 
 	wg.Wait()
-	
 
 }
 
@@ -660,12 +726,14 @@ func (rf *Raft) ticker() {
 
 	for rf.killed() == false {
 
-		start := time.Now()
+		//start := time.Now()
 		rf.mu.Lock()
+		// ti := time.Since(start).Milliseconds()
+		// log.Printf("S%d AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%d", rf.me, ti)
 
 		if rf.electionElapsed >= rf.electionRandomTimeout {
 			rand.Seed(time.Now().UnixNano())
-			rf.electionRandomTimeout = rand.Intn(250) + 200
+			rf.electionRandomTimeout = rand.Intn(100) + 400
 			rf.electionElapsed = 0
 			if rf.state == 2 {
 				rf.electionRandomTimeout = 90
@@ -680,8 +748,6 @@ func (rf *Raft) ticker() {
 		}
 
 		//start := time.Now()
-		ti := time.Since(start).Milliseconds()
-		log.Printf("S%d AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%d", rf.me, ti)
 
 		rf.electionElapsed++
 
@@ -716,7 +782,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.currentTerm = 0
 	rf.electionElapsed = 0
 	rand.Seed(time.Now().UnixNano())
-	rf.electionRandomTimeout = rand.Intn(250) + 200
+	rf.electionRandomTimeout = rand.Intn(100) + 400
 	rf.state = 0
 
 	rf.log = []LogNode{}
@@ -742,7 +808,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 			rf.mu.Lock()
 
 			commit := rf.commitIndex
-			applied:= rf.lastApplied
+			applied := rf.lastApplied
 
 			rf.mu.Unlock()
 			if commit > applied {
@@ -759,10 +825,13 @@ func Make(peers []*labrpc.ClientEnd, me int,
 				}
 				rf.mu.Lock()
 				rf.lastApplied = commit
+				rf.persist()
 				rf.mu.Unlock()
 
 				DEBUG(dLog, "S%d comm(%d) last(%d)\n", rf.me, commit, rf.lastApplied)
 			}
+
+			time.Sleep(time.Millisecond * 50)
 		}
 	}()
 
