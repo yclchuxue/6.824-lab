@@ -130,11 +130,11 @@ func (rf *Raft) persist() {
 	e := labgob.NewEncoder(w)
 
 	var Usr Per
-
+	rf.mu.Lock()
 	Usr.Log = rf.log
 	Usr.Term = rf.currentTerm
 	Usr.VotedFor = rf.votedFor
-
+	rf.mu.Unlock()
 	e.Encode(Usr)
 	data := w.Bytes()
 	rf.persister.SaveRaftState(data)
@@ -159,10 +159,13 @@ func (rf *Raft) readPersist(data []byte) {
 	if	d.Decode(&Usr) != nil {
 		DEBUG(dWarn, "S%d labgob fail\n", rf.me)
 	} else {
+		rf.mu.Lock()
 		DEBUG(dLog, "S%d ??? Term = %d log(%v) votefor(%d)\n", rf.me, Usr.Term, Usr.Log, Usr.VotedFor)
 		rf.currentTerm = Usr.Term
 		rf.log = Usr.Log
 		rf.votedFor = Usr.VotedFor
+		rf.matchIndex[rf.me] = len(rf.log) -1
+		rf.mu.Unlock()
 	}
 
 	// Your code here (2C).
@@ -397,6 +400,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			reply.Logterm = rf.log[len(rf.log) - 1].Logterm //最新日志条目的任期
 			i := rf.matchIndex[rf.me]
 			for rf.log[i].Logterm == reply.Logterm {
+				if i <= 1{
+					DEBUG(dWarn, "S%d i = %d\n", rf.me, i)
+					break
+				}
 				i--
 			}
 
@@ -575,7 +582,7 @@ func (rf *Raft) appendentries(term int, index int) {
 							rf.electionRandomTimeout = rand.Intn(100) + 400
 						} else {
 							if reply.Logterm != 0 {
-								DEBUG(dLog, "S%d 匹配失败 tfi(%d)\n", rf.me, reply.Termfirstindex)
+								DEBUG(dLog, "S%d to %d 匹配失败 tfi(%d)\n", rf.me, it, reply.Termfirstindex)
 
 								//跳过整个冲突任期----可能需要判断该index是否存在
 								if reply.Termfirstindex > 1 {
@@ -589,7 +596,7 @@ func (rf *Raft) appendentries(term int, index int) {
 						}
 					}
 				} else {
-					DEBUG(dWarn, "S%d -> %d app fail\n", rf.me, it)
+					DEBUG(dLog, "S%d -> %d app fail\n", rf.me, it)
 				}
 				// ti := time.Since(start).Milliseconds()
 				// log.Printf("S%d BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB %d", rf.me, ti)
@@ -810,9 +817,11 @@ func Make(peers []*labrpc.ClientEnd, me int,
 			commit := rf.commitIndex
 			applied := rf.lastApplied
 
+			arry := rf.log[applied+1 : commit+1] 
+
 			rf.mu.Unlock()
 			if commit > applied {
-				for _, it := range rf.log[applied+1 : commit+1] {
+				for _, it := range arry {
 
 					node := ApplyMsg{
 						CommandValid: true,

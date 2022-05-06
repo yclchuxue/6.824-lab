@@ -1,11 +1,14 @@
 package raft
-import(
-  "os"
-  "log"
-  "strconv"
-  "time"
-  "fmt"
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"strconv"
+	"sync"
+	"time"
 )
+
 // Retrieve the verbosity level from an environment variable
 func getVerbosity() int {
   v := os.Getenv("VERBOSE")  
@@ -42,20 +45,25 @@ const (
 
 var debugStart time.Time
 var debugVerbosity int
+var mu sync.Mutex
 
 func LOGinit() {
+  mu.Lock()
   debugVerbosity = getVerbosity()
   debugStart = time.Now()
 
   log.SetFlags(log.Flags() &^ (log.Ldate | log.Ltime))
+  mu.Unlock()
 }
 
 func DEBUG(topic logTopic, format string, a ...interface{}) {
   // if debug >= 1 {
+    mu.Lock()
     time := time.Since(debugStart).Microseconds()
     time = time /100
     prefix := fmt.Sprintf("%06d %v ", time, string(topic))
     format = prefix + format
     fmt.Printf(format, a...)
+    mu.Unlock()
   // }
 }

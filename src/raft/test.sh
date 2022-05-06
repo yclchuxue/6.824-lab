@@ -26,7 +26,7 @@ do
 # 8 TestUnreliableChurn2C  5
 
 
-VERBOSE=1 go test -run TestPersist22C > output.log
+VERBOSE=1 go test -race -run TestFigure82C > output.log
 echo $i
 if cat output.log | grep FAIL 
 then

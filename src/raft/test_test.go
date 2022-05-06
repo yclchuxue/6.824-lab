@@ -830,7 +830,7 @@ func TestPersist32C(t *testing.T) {
 // The leader in a new term may try to finish replicating log entries that
 // haven't been committed yet.
 //
-func TestFigure82C(t *testing.T) {
+func TestFigure82C(t *testing.T) {     //4
 	servers := 5
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
