@@ -26,12 +26,12 @@ do
 # 8 TestUnreliableChurn2C  5
 
 
-VERBOSE=1 go test -race -run TestFigure82C > output.log
+VERBOSE=1 go test -race -run 2B > output1.log
 echo $i
-if cat output.log | grep FAIL 
+if cat output1.log | grep FAIL 
 then
     # cat output.log >> output1.log
-    python3 ./dslogs.py  output.log -c 5
+    python3 ./dslogs.py  output1.log -c 5
     break
 fi
 done
