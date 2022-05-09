@@ -161,15 +161,13 @@ func (rf *Raft) readPersist(data []byte) {
 	if d.Decode(&Usr) != nil {
 		DEBUG(dWarn, "S%d labgob fail\n", rf.me)
 	} else {
-		
-		DEBUG(dLog, "S%d ??? Term = %d votefor(%d) log= (%v)\n", rf.me, Usr.Term, Usr.VotedFor, Usr.Log)
+		//DEBUG(dLog, "S%d ??? Term = %d votefor(%d) log= (%v)\n", rf.me, Usr.Term, Usr.VotedFor, Usr.Log)
 		rf.currentTerm = Usr.Term
 		rf.log = Usr.Log
 		// DEBUG(dLog, "S%d 恢复log %v\n", rf.me, rf.log)
 		rf.votedFor = Usr.VotedFor
 		rf.matchIndex[rf.me] = rf.log[len(rf.log)-1].LogIndex
 		//rf.state = 0
-		
 	}
 	rf.mu.Unlock()
 }
@@ -273,11 +271,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			if args.LastLogIterm >= rf.log[logi].Logterm {
 				if args.LastLogIndex >= logi ||
 					args.LastLogIterm > rf.log[logi].Logterm {
-
-					// for j, log := range rf.log {
-					// 	DEBUG(dWarn, "S%d index = %d log = %v\n", rf.me, j, log)
-					// }
-
 					rf.state = 0
 					reply.Term = args.Term
 					rf.electionElapsed = 0
@@ -353,7 +346,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 				index := args.PrevLogIndex + 1
 
-				for _, val := range logs {
+				for i, val := range logs {
 
 					if len(rf.log)-1 >= index {
 						DEBUG(dLog, "S%d mat(%d) index(%d) len(%d)\n", rf.me, len(rf.log)-1, index, len(rf.log))
@@ -362,16 +355,18 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 						} else {
 							rf.log = rf.log[:index]
 							//rf.matchIndex[rf.me] = index - 1
-							rf.log = append(rf.log, val)
-							DEBUG(dLog, "S%d A success + log(%v)\n", rf.me, val)
+							rf.log = append(rf.log, logs[i:]...)
+							DEBUG(dLog, "S%d A success + log(%v)\n", rf.me, logs[i:])
 							rf.matchIndex[rf.me] = rf.log[len(rf.log)-1].LogIndex
 							index++
+							break
 						}
 					} else {
-						rf.log = append(rf.log, val)
-						DEBUG(dLog, "S%d B success + log(%v)\n", rf.me, val)
+						rf.log = append(rf.log, logs[i:]...)
+						DEBUG(dLog, "S%d B success + log(%v)\n", rf.me, logs[i:])
 						rf.matchIndex[rf.me] = rf.log[len(rf.log)-1].LogIndex
 						index++
+						break
 					}
 				}
 				reply.Success = true
