@@ -874,7 +874,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 				
 			}
 
-			time.Sleep(time.Millisecond*30)
+			time.Sleep(time.Millisecond*100)
 		}
 	}()
 
