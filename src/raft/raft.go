@@ -21,7 +21,7 @@ import (
 	//	"bytes"
 	// "fmt"
 	"bytes"
-	//"log"
+	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -164,7 +164,7 @@ func (rf *Raft) readPersist(data []byte) {
 		//DEBUG(dLog, "S%d ??? Term = %d votefor(%d) log= (%v)\n", rf.me, Usr.Term, Usr.VotedFor, Usr.Log)
 		rf.currentTerm = Usr.Term
 		rf.log = Usr.Log
-		// DEBUG(dLog, "S%d 恢复log %v\n", rf.me, rf.log)
+		DEBUG(dLog, "S%d 恢复log %v\n", rf.me, rf.log)
 		rf.votedFor = Usr.VotedFor
 		rf.matchIndex[rf.me] = rf.log[len(rf.log)-1].LogIndex
 		//rf.state = 0
@@ -260,9 +260,9 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			rf.currentTerm = args.Term
 			rf.votedFor = -1
 			go rf.persist()
-			rf.electionElapsed = 0
-			rand.Seed(time.Now().UnixNano())
-			rf.electionRandomTimeout = rand.Intn(100) + 400
+			// rf.electionElapsed = 0
+			// rand.Seed(time.Now().UnixNano())
+			// rf.electionRandomTimeout = rand.Intn(200) + 300
 		}
 
 		if rf.votedFor == -1 || rf.votedFor == args.CandidateId { //任期相同且未投票或者候选者和上次相同
@@ -275,7 +275,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 					reply.Term = args.Term
 					rf.electionElapsed = 0
 					rand.Seed(time.Now().UnixNano())
-					rf.electionRandomTimeout = rand.Intn(100) + 400
+					rf.electionRandomTimeout = rand.Intn(200) + 300
 					rf.votedFor = args.CandidateId
 					rf.leaderId = -1
 					DEBUG(dVote, "S%d  vote <- %d T(%d) = LastlogT(%d) logi(%d) lastlogindex(%d)\n", rf.me, args.CandidateId, rf.log[logi].Logterm, args.LastLogIterm, logi, args.LastLogIndex)
@@ -321,7 +321,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 		rf.electionElapsed = 0
 		rand.Seed(time.Now().UnixNano())
-		rf.electionRandomTimeout = rand.Intn(100) + 400
+		rf.electionRandomTimeout = rand.Intn(200) + 300
 
 		if args.Term > rf.currentTerm {
 			rf.votedFor = -1
@@ -354,6 +354,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 							index++
 						} else {
 							rf.log = rf.log[:index]
+							DEBUG(dLog, "S%d CCCCCCCCCCCCCCCCC\n", rf.me)
 							//rf.matchIndex[rf.me] = index - 1
 							rf.log = append(rf.log, logs[i:]...)
 							DEBUG(dLog, "S%d A success + log(%v)\n", rf.me, logs[i:])
@@ -390,11 +391,15 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				reply.Logterm = rf.log[args.PrevLogIndex].Logterm //冲突日志任期
 				i := args.PrevLogIndex
 				for rf.log[i].Logterm == reply.Logterm {
+					if i <= 1 {
+						DEBUG(dWarn, "S%d j = %d\n", rf.me, i)
+						break
+					}
 					i--
 				}
 
 				reply.Termfirstindex = i + 1 //reply.Logterm任期内的第一条日志
-
+				DEBUG(dLog, "S%d DDDDDDDDDDDDDDDDDDD\n")
 				rf.log = rf.log[:args.PrevLogIndex] //匹配失败，删除该日志条目及其后面的日志
 				reply.Success = false
 				DEBUG(dLeader, "S%d AAA fail\n", rf.me)
@@ -421,6 +426,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		DEBUG(dLeader, "S%d CCC fail\n", rf.me)
 		reply.Logterm = 0
 	}
+	go rf.persist()
 	rf.mu.Unlock()
 }
 
@@ -511,10 +517,11 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	return index, term, isLeader
 }
 
-func (rf *Raft) appendentries(term int, index int) {
+func (rf *Raft) appendentries(term int) {
 
 	var wg sync.WaitGroup
 	rf.mu.Lock()
+	index := len(rf.log) - 1
 	le := len(rf.peers)	
 	rf.mu.Unlock()
 	wg.Add(le - 1)
@@ -523,42 +530,53 @@ func (rf *Raft) appendentries(term int, index int) {
 
 	for it := range rf.peers {
 		if it != rf.me {
-			go func(it int, term int, index int) {
+			go func(it int, term int) {
 				//for {
 				args := AppendEntriesArgs{}
 				args.Term = term
 				args.LeaderId = rf.me
 				rf.mu.Lock()
-
+				if rf.nextIndex[it] -1 > index {
+					fmt.Println("AAAAAAAAAAAAAAAAA")
+				}
+				if index != len(rf.log) -1 {
+					fmt.Println("BBBBBBBBBBBBBBBBB")
+				}
+				if rf.currentTerm != term && rf.state != 2 {
+					rf.mu.Unlock()
+					wg.Done()
+					return
+				}
+				//start := time.Now()
 				args.PrevLogIndex = rf.nextIndex[it] - 1
-
+				DEBUG(dLeader, "S%d index(%d)  Pre(%d) len(%d)\n", rf.me, index, args.PrevLogIndex, len(rf.log)-1)
 				DEBUG(dLeader, "S%d app -> %d next(%d) index(%d) neT(%d) cT(%d)\n", rf.me, it, rf.nextIndex[it], index, rf.log[args.PrevLogIndex].Logterm, term)
 
 				//DEBUG(dLog, "S%d args.PrevIndex = %d, next(%d) index(%d)\n", rf.me, args.PrevLogIndex, rf.nextIndex[it], index)
 				args.PrevLogIterm = rf.log[args.PrevLogIndex].Logterm
 
+
+
 				if index >= rf.nextIndex[it] {
-					for _, log := range rf.log[rf.nextIndex[it] : index+1] {
-						args.Entries = append(args.Entries, log)
-					}
+					nums :=  rf.log[rf.nextIndex[it] : index+1]
+					args.Entries = append(args.Entries, nums...)
 				}
-				// for _, val := range args.Entries {
-				// 	DEBUG(dLeader, "S%d send to %d %v\n", rf.me, it, val)
-				// }
 
 				//附加commitIndex，让follower应用日志
 				args.LeaderCommit = rf.commitIndex
 
 				iter := it
 				rf.mu.Unlock()
-
+				// ti := time.Since(start).Milliseconds()
+				// DEBUG(dTest, "S%d AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%d\n", rf.me, ti)
 				reply := AppendEntriesReply{}
 				
 				ok := rf.sendAppendEntries(iter, &args, &reply)
 
-				rf.mu.Lock()
+				
 				// start := time.Now()
 				if ok {
+					rf.mu.Lock()
 					if reply.Success {
 
 						successnum := 0
@@ -566,7 +584,9 @@ func (rf *Raft) appendentries(term int, index int) {
 						//统计复制成功的个数，超过半数就提交（修改commitindex）
 
 						rf.matchIndex[it] = index
+						DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success\n", rf.me, it, rf.nextIndex[it], index+1)
 						rf.nextIndex[it] = index + 1
+						
 
 						for _, in := range rf.matchIndex {
 							if in == index {
@@ -593,15 +613,17 @@ func (rf *Raft) appendentries(term int, index int) {
 							go rf.persist()
 							rf.electionElapsed = 0
 							rand.Seed(time.Now().UnixNano())
-							rf.electionRandomTimeout = rand.Intn(100) + 400
+							rf.electionRandomTimeout = rand.Intn(200) + 300
 						} else {
 							if reply.Logterm >= 0 {
 								DEBUG(dLog, "S%d to %d 匹配失败 tfi(%d)\n", rf.me, it, reply.Termfirstindex)
 
 								//跳过整个冲突任期----可能需要判断该index是否存在
 								if reply.Termfirstindex > 1 {
+									DEBUG(dLeader, "S%d update nextindex[%d](%d) to X(%d) > 1\n", rf.me, it, rf.nextIndex[it], reply.Termfirstindex);
 									rf.nextIndex[it] = reply.Termfirstindex
 								} else {
+									DEBUG(dLog, "S%d update nextindex[%d](%d) to %d <= 1\n", rf.me, it, rf.nextIndex[it], 1)
 									rf.nextIndex[it] = 1
 								}
 							} else {
@@ -609,15 +631,13 @@ func (rf *Raft) appendentries(term int, index int) {
 							}
 						}
 					}
+					rf.mu.Unlock()
 				} else {
 					DEBUG(dLog, "S%d -> %d app fail\n", rf.me, it)
 				}
-				// ti := time.Since(start).Milliseconds()
-				// log.Printf("S%d BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB %d", rf.me, ti)
-				rf.mu.Unlock()
-				//}
+				
 				wg.Done()
-			}(it, term, index)
+			}(it, term)
 		}
 	}
 
@@ -647,7 +667,7 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
-func (rf *Raft) requestvotes(term int, index int) {
+func (rf *Raft) requestvotes(term int) {
 
 	rf.mu.Lock()
 	truenum := int64(1)
@@ -667,13 +687,13 @@ func (rf *Raft) requestvotes(term int, index int) {
 	for it := range rf.peers {
 		if it != rf.me {
 
-			go func(it int, term int, index int) {
+			go func(it int, term int) {
 				args := RequestVoteArgs{}
 				reply := RequestVoteReply{}
 				args.CandidateId = rf.me
 				args.Term = term
 				rf.mu.Lock()
-
+				index := len(rf.log) -1
 				args.LastLogIndex = index
 				args.LastLogIterm = rf.log[index].Logterm
 
@@ -682,10 +702,8 @@ func (rf *Raft) requestvotes(term int, index int) {
 				DEBUG(dVote, "S%d  vote -> %d cT(%d)\n", rf.me, it, term)
 				ok := rf.sendRequestVote(it, &args, &reply) //发起投票
 
-				rf.mu.Lock()
-
 				if ok {
-
+					rf.mu.Lock()
 					if term != rf.currentTerm {
 
 						DEBUG(dVote, "S%d  vote tT(%d) != cT(%d)\n", rf.me, term, rf.currentTerm)
@@ -698,23 +716,25 @@ func (rf *Raft) requestvotes(term int, index int) {
 						}
 
 						if atomic.LoadInt64(&truenum) > int64(peers/2) { //票数过半
-							DEBUG(dVote, "S%d  have %d votes T(%d) cT(%d) %d B\n", rf.me, truenum, term, rf.currentTerm, peers/2)
-							//log.Printf("%v %d have %d votes in term(%d) but currentterm(%d)! %d B",   rf.me, truenum, term, rf.currentTerm, peers/2)
-
+							
 							rf.state = 2
 							rf.electionElapsed = 0
 							rf.electionRandomTimeout = 90
 
+							DEBUG(dVote, "S%d  have %d votes T(%d) cT(%d) %d B\n", rf.me, truenum, term, rf.currentTerm, peers/2)
+							//log.Printf("%v %d have %d votes in term(%d) but currentterm(%d)! %d B",   rf.me, truenum, term, rf.currentTerm, peers/2)
+
 							rf.matchIndex[rf.me] = rf.log[len(rf.log)-1].LogIndex
 
 							for i := 0; i < len(rf.peers); i++ {
+								DEBUG(dLog, "S%d update nextindex[%d](%d) to %d (len(log))\n", rf.me, it, rf.nextIndex[it], len(rf.log))
 								rf.nextIndex[i] = len(rf.log)
 								if i != rf.me {
 									rf.matchIndex[i] = 1
 								}
 							}
-							//rf.electionElapsed = 100
-							go rf.appendentries(rf.currentTerm, rf.matchIndex[rf.me])
+							//rf.electionElapsed = 200
+							go rf.appendentries(rf.currentTerm)
 							DEBUG(dLeader, "S%d  be Leader B\n", rf.me)
 
 						}
@@ -726,17 +746,18 @@ func (rf *Raft) requestvotes(term int, index int) {
 							rf.votedFor = -1
 							rf.electionElapsed = 0
 							rand.Seed(time.Now().UnixNano())
-							rf.electionRandomTimeout = rand.Intn(100) + 400
+							rf.electionRandomTimeout = rand.Intn(200) + 300
 							DEBUG(dVote, "S%d vote T(%d) > cT(%d) be -1's follower vf(%d)\n", rf.me, term, rf.currentTerm, rf.votedFor)
 						}
 					}
+					rf.mu.Unlock()
 				} else {
 					DEBUG(dVote, "S%d vote -> %d fail\n", rf.me, it)
 				}
 				go rf.persist()
-				rf.mu.Unlock()
+				
 				wg.Done()
-			}(it, term, index)
+			}(it, term)
 
 		}
 	}
@@ -749,34 +770,32 @@ func (rf *Raft) requestvotes(term int, index int) {
 // heartsbeats recently.
 func (rf *Raft) ticker() {
 
-	var start time.Time
-	start = time.Now()
+	//var start time.Time
+	//start = time.Now()
 	for rf.killed() == false {
 
-		//start := time.Now()
+		// start := time.Now()
 		rf.mu.Lock()
 		// ti := time.Since(start).Milliseconds()
-		// log.Printf("S%d AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%d", rf.me, ti)
+		// DEBUG(dLog, "S%d in tiker cause AAA%d\n", rf.me, ti)
 
 		if rf.electionElapsed >= rf.electionRandomTimeout {
 			rand.Seed(time.Now().UnixNano())
-			rf.electionRandomTimeout = rand.Intn(100) + 400
+			rf.electionRandomTimeout = rand.Intn(200) + 300
 			rf.electionElapsed = 0
 			if rf.state == 2 {
 				rf.electionRandomTimeout = 90
-				ti := time.Since(start).Milliseconds()
-				DEBUG(dLog, "S%d QQQQQQQQQQ%d\n", rf.me, ti)
-				le := len(rf.log)-1
+				// ti := time.Since(start).Milliseconds()
+				// DEBUG(dLog, "S%d QQQQQQQQQQ%d\n", rf.me, ti)
 				go rf.persist()
-				go rf.appendentries(rf.currentTerm, le)
-				start = time.Now()
+				go rf.appendentries(rf.currentTerm)
+				//start = time.Now()
 			} else {
 				rf.currentTerm++
 				rf.state = 1
 				rf.votedFor = -1
-				le := len(rf.log)-1
 				go rf.persist()
-				go rf.requestvotes(rf.currentTerm, le)
+				go rf.requestvotes(rf.currentTerm)
 			}
 		}
 
@@ -815,7 +834,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.currentTerm = 0
 	rf.electionElapsed = 0
 	rand.Seed(time.Now().UnixNano())
-	rf.electionRandomTimeout = rand.Intn(100) + 400
+	rf.electionRandomTimeout = rand.Intn(200) + 300
 	rf.state = 0
 	rf.cond = sync.NewCond(&rf.mu)
 	rf.log = []LogNode{}
