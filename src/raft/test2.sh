@@ -27,7 +27,7 @@ trap 'exit 1' INT
 
 # T2B=(TestBasicAgree2B TestRPCBytes2B For2023TestFollowerFailure2B For2023TestLeaderFailure2B TestFailAgree2B TestFailNoAgree2B TestConcurrentStarts2B TestRejoin2B TestBackup2B
 # TestCount2B)
-
+# python3 ./dslogs.py  output.log -c 5
 T2=(TestPersist12C TestPersist22C TestPersist32C TestFigure82C TestUnreliableAgree2C TestFigure8Unreliable2C TestReliableChurn2C TestUnreliableChurn2C)
 
 # for((i = 0; i < 8; i++));
@@ -42,5 +42,5 @@ python3 ./dstest.py TestPersist12C \
                     TestFigure8Unreliable2C \
                     TestReliableChurn2C \
                     TestUnreliableChurn2C \
-                    -r -p10 -n50 
+                    -r -p10 -n100
                     
