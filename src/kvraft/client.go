@@ -11,6 +11,7 @@ import (
 
 type Clerk struct {
 	servers []*labrpc.ClientEnd
+	leader int
 	// You will have to modify this struct.
 }
 
@@ -24,6 +25,7 @@ func nrand() int64 {
 func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
+	ck.leader = 0
 	// You'll have to add code here.
 	return ck
 }
@@ -52,18 +54,23 @@ func (ck *Clerk) Get(key string) string {
 
 	// i := int(nrand())%(len(ck.servers))
 
-	for i := 0; i < len(ck.servers); {
+	for i := ck.leader; i < len(ck.servers); {
 		ok := ck.servers[i].Call("KVServer.Get", &args, &reply)
 		if ok {
 			
-			if reply.Err == "this kvserver is not leader!" {
+			if reply.Err == ErrWrongLeader {
 				i++
 				if i == len(ck.servers){
 					i = 0
 				}
-				fmt.Println("Get fail key = ", key, "value = ", reply.Value)
-			} else {
+				//fmt.Println("Get fail key = ", key, "value = ", reply.Value)
+			} else if reply.Err == OK{
+				ck.leader = i
 				fmt.Println("Get success key = ", key, "value = ", reply.Value)
+				return reply.Value
+			}else{
+				ck.leader = i
+				fmt.Println("Get nil key = ", key, "value = ", reply.Value)
 				return reply.Value
 			}
 		}
@@ -93,31 +100,36 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	reply := PutAppendReply{}
 
 	// i := int(nrand())%(len(ck.servers))
-
-	for i := 0; i < len(ck.servers); {
+	
+	for i := ck.leader; i < len(ck.servers); {
 		ok := ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
 		if ok {
 			
-			if reply.Err == "this kvserver is not leader!" {
+			if reply.Err == ErrWrongLeader {
 				i++
 				if i == len(ck.servers){
 					i = 0
 				}
-				fmt.Println(args.Op, "PutAppend fail key = ", key, "value = ", args.Value)
-			} else {
+				//fmt.Println(args.Op, "PutAppend fail key = ", key, "value = ", args.Value)
+			} else if reply.Err == OK{
+				ck.leader = i
 				fmt.Println(args.Op, "PutAppend success key = ", key, "value = ", args.Value)
-				return 
+				break
+			}else{
+				ck.leader = i
+				fmt.Println(args.Op, "PutAppend nil key = ", key, "value = ", args.Value)
+				break
 			}
 		}
 	}
 }
 
 func (ck *Clerk) Put(key string, value string) {
-	//fmt.Println("Put key = ", key, "value = ", value)
+	// fmt.Println("Put key = ", key, "value = ", value)
 	ck.PutAppend(key, value, "Put")
 }
 
 func (ck *Clerk) Append(key string, value string) {
-	//fmt.Println("Append key = ", key, "value = ", value)
+	// fmt.Println("Append key = ", key, "value = ", value)
 	ck.PutAppend(key, value, "Append")
 }

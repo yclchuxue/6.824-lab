@@ -39,6 +39,8 @@ type KVServer struct {
 
 	maxraftstate int // snapshot if log grows this big
 
+	KVS map[string]string
+
 	// Your definitions here.
 }
 
@@ -49,26 +51,26 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		Operate: "Get",
 		Key: args.Key,
 	}
-	_, _, isLeader := kv.rf.Start(O)
+	index, _, isLeader := kv.rf.Start(O)
 	if isLeader == false {
-		reply.Err = "this kvserver is not leader!"
+		reply.Err  = ErrWrongLeader
 		reply.Value = ""
 	}else{
 		for m := range kv.applyCh {
-			if m.CommandValid {
-				O1 := m.Command.(Op)
-				fmt.Println("log:", O1.Key, O1.Value, O1.Operate)
-				if O1.Key == args.Key {
-					reply.Err = "nil"
-					reply.Value = O1.Value
-					return
+			if m.CommandValid && index == m.CommandIndex && O == m.Command{
+				val, ok := kv.KVS[O.Key] 
+				if ok {
+					reply.Err = OK
+					reply.Value = val
+				}else{
+					reply.Err = ErrNoKey
+					reply.Value = ""
 				}
 			}else{
-				fmt.Println("not log")
-				reply.Err = "read from applyCh is not GET"
-				reply.Value = ""
-				return
+				reply.Err = ErrNoKey
+				fmt.Println("???????")
 			}
+			break
 		}
 	}
 
@@ -81,17 +83,38 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		Key: args.Key,
 		Value: args.Value,
 	}
-	_, _, isLeader := kv.rf.Start(O)
+
+	index, _, isLeader := kv.rf.Start(O)
 	if !isLeader {
-		reply.Err = "this kvserver is not leader!"
+		reply.Err = ErrWrongLeader
 	}else{
-		// for m := range kv.applyCh {
-		// 	if m.CommandValid && index == m.CommandIndex && O == m.Command{
-		// 		reply.Err = "nil"
-		// 	}else{
-		// 		reply.Err = "read from applyCh is not PutAppend"
-		// 	}
-		// }
+		for m := range kv.applyCh {
+			fmt.Println(index, m)
+			if m.CommandValid && index == m.CommandIndex{
+				if O.Operate == "Append" {
+					val, ok := kv.KVS[O.Key] 
+					if ok {
+						reply.Err = OK
+						kv.KVS[O.Key] = val + O.Value
+					}else{
+						kv.KVS[O.Key] = O.Value
+					}
+				}else{
+					_, ok := kv.KVS[O.Key] 
+					if ok {
+						reply.Err = OK
+						kv.KVS[O.Key] = O.Value
+					}else{
+						reply.Err = ErrNoKey
+					}
+				}
+			}else{
+				reply.Err = ErrNoKey
+				fmt.Println("????????!")
+			}
+			fmt.Println(kv.KVS, "in putappend")
+			break
+		}
 	}
 }
 
@@ -138,6 +161,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv := new(KVServer)
 	kv.me = me
 	kv.maxraftstate = maxraftstate
+	kv.KVS = make(map[string]string)
 
 	// You may need initialization code here.
 
