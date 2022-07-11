@@ -1,8 +1,12 @@
 package kvraft
 
-import "6.824/labrpc"
-import "crypto/rand"
-import "math/big"
+import (
+	"crypto/rand"
+	"fmt"
+	"math/big"
+
+	"6.824/labrpc"
+)
 
 
 type Clerk struct {
@@ -39,6 +43,32 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 func (ck *Clerk) Get(key string) string {
 
 	// You will have to modify this function.
+
+	args := GetArgs{}
+
+	args.Key = key
+
+	reply := GetReply{}
+
+	// i := int(nrand())%(len(ck.servers))
+
+	for i := 0; i < len(ck.servers); {
+		ok := ck.servers[i].Call("KVServer.Get", &args, &reply)
+		if ok {
+			
+			if reply.Err == "this kvserver is not leader!" {
+				i++
+				if i == len(ck.servers){
+					i = 0
+				}
+				fmt.Println("Get fail key = ", key, "value = ", reply.Value)
+			} else {
+				fmt.Println("Get success key = ", key, "value = ", reply.Value)
+				return reply.Value
+			}
+		}
+	}
+
 	return ""
 }
 
@@ -54,11 +84,40 @@ func (ck *Clerk) Get(key string) string {
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
+	args := PutAppendArgs{
+		Key: key,
+		Value: value,
+		Op: op,
+	}
+
+	reply := PutAppendReply{}
+
+	// i := int(nrand())%(len(ck.servers))
+
+	for i := 0; i < len(ck.servers); {
+		ok := ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
+		if ok {
+			
+			if reply.Err == "this kvserver is not leader!" {
+				i++
+				if i == len(ck.servers){
+					i = 0
+				}
+				fmt.Println(args.Op, "PutAppend fail key = ", key, "value = ", args.Value)
+			} else {
+				fmt.Println(args.Op, "PutAppend success key = ", key, "value = ", args.Value)
+				return 
+			}
+		}
+	}
 }
 
 func (ck *Clerk) Put(key string, value string) {
+	//fmt.Println("Put key = ", key, "value = ", value)
 	ck.PutAppend(key, value, "Put")
 }
+
 func (ck *Clerk) Append(key string, value string) {
+	//fmt.Println("Append key = ", key, "value = ", value)
 	ck.PutAppend(key, value, "Append")
 }

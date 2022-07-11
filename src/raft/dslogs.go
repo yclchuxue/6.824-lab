@@ -1,7 +1,7 @@
 package raft
 
 import (
-	"fmt"
+	//"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -58,12 +58,12 @@ func LOGinit() {
 
 func DEBUG(topic logTopic, format string, a ...interface{}) {
   // if debug >= 1 {
-    mu.Lock()
-    time := time.Since(debugStart).Microseconds()
-    time = time /100
-    prefix := fmt.Sprintf("%06d %v ", time, string(topic))
-    format = prefix + format
-    fmt.Printf(format, a...)
-    mu.Unlock()
+    // mu.Lock()
+    // time := time.Since(debugStart).Microseconds()
+    // time = time /100
+    // prefix := fmt.Sprintf("%06d %v ", time, string(topic))
+    // format = prefix + format
+    // fmt.Printf(format, a...)
+    // mu.Unlock()
   // }
 }

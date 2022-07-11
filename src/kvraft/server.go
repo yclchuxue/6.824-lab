@@ -1,12 +1,14 @@
 package kvraft
 
 import (
-	"6.824/labgob"
-	"6.824/labrpc"
-	"6.824/raft"
+	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
+
+	"6.824/labgob"
+	"6.824/labrpc"
+	"6.824/raft"
 )
 
 const Debug = false
@@ -23,6 +25,9 @@ type Op struct {
 	// Your definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	Operate string
+	Key string
+	Value string
 }
 
 type KVServer struct {
@@ -40,10 +45,54 @@ type KVServer struct {
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
+	O := Op{
+		Operate: "Get",
+		Key: args.Key,
+	}
+	_, _, isLeader := kv.rf.Start(O)
+	if isLeader == false {
+		reply.Err = "this kvserver is not leader!"
+		reply.Value = ""
+	}else{
+		for m := range kv.applyCh {
+			if m.CommandValid {
+				O1 := m.Command.(Op)
+				fmt.Println("log:", O1.Key, O1.Value, O1.Operate)
+				if O1.Key == args.Key {
+					reply.Err = "nil"
+					reply.Value = O1.Value
+					return
+				}
+			}else{
+				fmt.Println("not log")
+				reply.Err = "read from applyCh is not GET"
+				reply.Value = ""
+				return
+			}
+		}
+	}
+
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	// Your code here.
+	O := Op{
+		Operate: args.Op,
+		Key: args.Key,
+		Value: args.Value,
+	}
+	_, _, isLeader := kv.rf.Start(O)
+	if !isLeader {
+		reply.Err = "this kvserver is not leader!"
+	}else{
+		// for m := range kv.applyCh {
+		// 	if m.CommandValid && index == m.CommandIndex && O == m.Command{
+		// 		reply.Err = "nil"
+		// 	}else{
+		// 		reply.Err = "read from applyCh is not PutAppend"
+		// 	}
+		// }
+	}
 }
 
 //

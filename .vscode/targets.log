@@ -6,11 +6,10 @@ make all --print-data-base --no-builtin-variables --no-builtin-rules --question
 # This is free software: you are free to change and redistribute it.
 # There is NO WARRANTY, to the extent permitted by law.
 
-# Make data base, printed on Wed Jul  6 19:29:11 2022
+# Make data base, printed on Mon Jul 11 10:12:43 2022
 
 # Variables
 
- 
 # environment
 GDK_BACKEND = x11
 # environment
@@ -22,10 +21,11 @@ SSH_AGENT_LAUNCHER = gnome-keyring
 # environment
 GJS_DEBUG_OUTPUT = stderr
 # environment
-VSCODE_IPC_HOOK_EXTHOST = /run/user/1000/vscode-ipc-163e7686-6ac5-4856-909d-2827886c8dd4.sock
+VSCODE_IPC_HOOK_EXTHOST = /run/user/1000/vscode-ipc-b2da77a7-aebd-41c6-840e-31b7dc976650.sock
 # environment
 MANDATORY_PATH = /usr/share/gconf/ubuntu.mandatory.path
 # environment
+ 
 LC_NAME = zh_CN.UTF-8
 # environment
 LC_NUMERIC = zh_CN.UTF-8
@@ -72,7 +72,7 @@ XAUTHORITY = /run/user/1000/gdm/Xauthority
 # default
 .INCLUDE_DIRS = /usr/local/include /usr/include /usr/include
 # environment
-GNOME_TERMINAL_SERVICE = :1.98
+GNOME_TERMINAL_SERVICE = :1.103
 # makefile
 MAKEFLAGS = pqrR
 # makefile (from 'Makefile', line 6)
@@ -106,13 +106,13 @@ MAKEFILE_LIST := Makefile
 # environment
 VSCODE_VERBOSE_LOGGING = true
 # environment
-VSCODE_PID = 4013
+VSCODE_PID = 11735
 # environment
 XDG_SESSION_TYPE = x11
 # automatic
 ?D = $(patsubst %/,%,$(dir $?))
 # environment
-SESSION_MANAGER = local/yang:@/tmp/.ICE-unix/2463,unix/yang:/tmp/.ICE-unix/2463
+SESSION_MANAGER = local/yang:@/tmp/.ICE-unix/2200,unix/yang:/tmp/.ICE-unix/2200
 # automatic
 *F = $(notdir $*)
 # environment
@@ -140,7 +140,7 @@ GJS_DEBUG_TOPICS = JS ERROR;JS LOG
 # environment
 SHLVL = 1
 # environment
-GNOME_TERMINAL_SCREEN = /org/gnome/Terminal/screen/2fdbc777_58ae_4f94_a47d_57fc7b603f33
+GNOME_TERMINAL_SCREEN = /org/gnome/Terminal/screen/d0cfbdd8_c529_44cd_9f71_b09d387d20f6
 # environment
 MAKELEVEL := 0
 # default
@@ -194,7 +194,7 @@ LOGNAME = yclchuxue
 # makefile
 .DEFAULT_GOAL := 
 # environment
-SYSTEMD_EXEC_PID = 2483
+SYSTEMD_EXEC_PID = 2220
 # environment
 DISPLAY = :1
 # environment
@@ -212,7 +212,6 @@ _ = /usr/bin/code
 # environment
 LC_PAPER = zh_CN.UTF-8
 # environment
- 
 XDG_RUNTIME_DIR = /run/user/1000
 # environment
 GPG_AGENT_INFO = /run/user/1000/gnupg/S.gpg-agent:0:1
@@ -312,6 +311,7 @@ LC_IDENTIFICATION = zh_CN.UTF-8
 
 check-%:
 #  recipe to execute (from 'Makefile', line 44):
+ 
 	@echo "Checking that your submission builds correctly..."
 	@./.check-build git://g.csail.mit.edu/6.824-golabs-2022 $(patsubst check-%,%,$@)
 
@@ -394,7 +394,6 @@ Makefile: check-Makefile
 #  File has not been updated.
 
 all: check-all
- 
 #  Command line target.
 #  Implicit rule search has been done.
 #  Implicit/static pattern stem: 'all'
@@ -472,6 +471,6 @@ check-Makefile:
 # strcache performance: lookups = 34 / hit rate = 44%
 # hash-table stats:
 # Load=19/8192=0%, Rehash=0, Collisions=3/34=9%
-# Finished Make data base on Wed Jul  6 19:29:11 2022
+# Finished Make data base on Mon Jul 11 10:12:43 2022
 
  
