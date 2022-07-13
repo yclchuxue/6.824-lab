@@ -660,6 +660,7 @@ func (rf *Raft) appendentries(term int) {
 					wg.Done()
 					return
 				}
+				DEBUG(dLeader, "S%d rf.nextindex[%d] = %d\n", rf.me, it, rf.nextIndex[it])
 				args.PrevLogIndex = rf.log[rf.nextIndex[it]-1].LogIndex
 				DEBUG(dLeader, "S%d index(%d)  Pre(%d) len(%d)\n", rf.me, index, args.PrevLogIndex, len(rf.log)-1)
 				DEBUG(dLeader, "S%d app -> %d next(%d) index(%d) neT(%d) cT(%d)\n", rf.me, it, rf.nextIndex[it], index, rf.log[args.PrevLogIndex-rf.X].Logterm, term)
