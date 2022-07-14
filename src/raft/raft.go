@@ -208,6 +208,9 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	rf.lastTerm = rf.log[le].Logterm
 	rf.snapshot = snapshot
 	rf.log = rf.log[le:]
+	if len(rf.log) == 0 {
+		fmt.Println("ERROR in snapshot in leader")
+	}
 	rf.X = index
 	for i := range rf.peers {
 		if rf.nextIndex[i]-le <= 0 {
@@ -215,9 +218,10 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 		} else {
 			rf.nextIndex[i] = rf.nextIndex[i] - le
 		}
-		DEBUG(dLog, "S%d update next[%d] to %d\n", rf.me, i, rf.nextIndex[i])
+		DEBUG(dLog, "S%d update nextindex[%d] to %d\n", rf.me, i, rf.nextIndex[i])
 	}
 	if rf.commitIndex < index {
+		DEBUG(dLeader, "S%d update commitindex(%d) to (%d)\n", rf.me, rf.commitIndex, index)
 		rf.commitIndex = index
 	}
 	rf.lastApplied = index
@@ -438,7 +442,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				}
 
 				reply.Termfirstindex = rf.log[i].LogIndex + 1 //reply.Logterm任期内的第一条日志
-				DEBUG(dLog, "S%d DDDDDDDDDDDDDDDDDDD\n")
+				DEBUG(dLog, "S%d DDDDDDDDDDDDDDDDDDD\n", rf.me)
 				rf.log = rf.log[:args.PrevLogIndex-rf.X] //匹配失败，删除该日志条目及其后面的日志
 				reply.Success = false
 				DEBUG(dLeader, "S%d AAA fail\n", rf.me)
@@ -478,7 +482,7 @@ func (rf *Raft) InstallSnapshot(args *SnapShotArgs, reply *SnapShotReply) {
 
 	rf.mu.Lock()
 	reply.Term = rf.currentTerm
-	if args.Term >= rf.currentTerm && args.LeaderId == rf.leaderId {
+	if args.Term >= rf.currentTerm && args.LeaderId == rf.leaderId && args.LastIncludedIndex > rf.log[0].LogIndex{
 		if rf.log[len(rf.log)-1].LogIndex < args.LastIncludedIndex || rf.log[0].LogIndex > args.LastIncludedIndex {
 			array := []LogNode{
 				{
@@ -488,11 +492,17 @@ func (rf *Raft) InstallSnapshot(args *SnapShotArgs, reply *SnapShotReply) {
 				},
 			}
 			rf.log = array
+			if len(rf.log) == 0 {
+				fmt.Println("ERROR in snapshot in follower log < snap")
+			}
 			rf.X = args.LastIncludedIndex
 			rf.matchIndex[rf.me] = rf.log[0].LogIndex
 		} else {
 			le := args.LastIncludedIndex - rf.log[0].LogIndex
 			rf.log = rf.log[le:]
+			if len(rf.log) == 0 {
+				fmt.Println("ERROR in snapshot in follower log > snap")
+			}
 			rf.X = args.LastIncludedIndex
 			for i := range rf.peers {
 				//rf.matchIndex[i] = rf.matchIndex[i] - le
@@ -508,6 +518,7 @@ func (rf *Raft) InstallSnapshot(args *SnapShotArgs, reply *SnapShotReply) {
 		rf.lastTerm = args.LastIncludedTerm
 		rf.lastIndex = args.LastIncludedIndex
 		if rf.commitIndex < rf.lastIndex {
+			DEBUG(dLeader, "S%d update commitindex(%d) to (%d)\n", rf.me, rf.commitIndex, rf.lastIndex)
 			rf.commitIndex = rf.lastIndex
 		}
 		rf.snapshot = args.Snapshot
@@ -624,6 +635,7 @@ func (rf *Raft) appendentries(term int) {
 	rf.mu.Lock()
 	index := len(rf.log) - 1
 	commit := rf.log[index].LogIndex
+	t := rf.log[index].Logterm
 	le := len(rf.peers)
 	rf.mu.Unlock()
 	wg.Add(le - 1)
@@ -643,12 +655,14 @@ func (rf *Raft) appendentries(term int) {
 				}
 				if rf.tindex != rf.log[0].LogIndex || index != len(rf.log)-1{
 					rf.tindex = rf.log[0].LogIndex
+					DEBUG(dLeader, "S%d appendentries error to exit because tindex or loglen changed\n", rf.me)
 					rf.mu.Unlock()
 					wg.Done()
 					return
 				}
 				if index == len(rf.log)-1 {
 					if commit-rf.X >= 0 && commit-rf.X < len(rf.log)-1 && rf.log[commit-rf.X].LogIndex != commit {
+						DEBUG(dLeader, "S%d appendentries error to exit because log changed 2\n", rf.me)
 						rf.mu.Unlock()
 						wg.Done()
 						return
@@ -656,6 +670,7 @@ func (rf *Raft) appendentries(term int) {
 					// fmt.Println("BBBBBBBBBBBBBBBBB")
 				}
 				if rf.currentTerm != term || rf.state != 2 {
+					DEBUG(dLeader, "S%d appendentries error to exit because term changed or not leader CT(%d) T(%d) Status(%d)\n", rf.me, rf.currentTerm, term, rf.state)
 					rf.mu.Unlock()
 					wg.Done()
 					return
@@ -691,15 +706,27 @@ func (rf *Raft) appendentries(term int) {
 						//统计复制成功的个数，超过半数就提交（修改commitindex）
 
 						rf.matchIndex[it] = index
-						DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success\n", rf.me, it, rf.nextIndex[it], index+1)
-						rf.nextIndex[it] = commit - rf.X + 1 //index + 1
+						if rf.tindex == rf.log[0].LogIndex {
+							DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success\n", rf.me, it, rf.nextIndex[it], commit - rf.X + 1)
+							rf.nextIndex[it] = commit - rf.X + 1 //index + 1
+						}else{
+							if commit >= rf.log[0].LogIndex {
+								DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success?\n", rf.me, it, rf.nextIndex[it], commit - rf.log[0].LogIndex + 1)
+								rf.nextIndex[it] = commit - rf.log[0].LogIndex + 1
+							}else{
+								DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success 1\n", rf.me, it, rf.nextIndex[it], 1)
+								rf.nextIndex[it] = 1
+							}
+							
+						}
 
 						for _, in := range rf.matchIndex {
 							if in == index {
 								successnum++
 							}
 						}
-						if successnum > le/2 && index > rf.commitIndex-rf.X && rf.currentTerm == rf.log[commit-rf.X].Logterm {
+
+						if successnum > le/2 && index > rf.commitIndex-rf.X && rf.currentTerm == t {
 							DEBUG(dLog, "S%d sum(%d) ban(%d)\n", rf.me, successnum, le/2)
 							DEBUG(dCommit, "S%d new commit(%d) and applied\n", rf.me, index)
 							rf.commitIndex = commit
@@ -725,7 +752,7 @@ func (rf *Raft) appendentries(term int) {
 									DEBUG(dLog2, "S%d send snapShot to %d\n", rf.me, it)
 									go rf.sendsnapshot(rf.currentTerm, it)
 								} else if reply.Termfirstindex-rf.X > 1 {
-									DEBUG(dLeader, "S%d update nextindex[%d](%d) to X(%d) > 1\n", rf.me, it, rf.nextIndex[it], reply.Termfirstindex)
+									DEBUG(dLeader, "S%d update nextindex[%d](%d) to X(%d) > 1\n", rf.me, it, rf.nextIndex[it], reply.Termfirstindex - rf.X)
 									rf.nextIndex[it] = reply.Termfirstindex - rf.X
 								} else {
 									DEBUG(dLog, "S%d update nextindex[%d](%d) to %d <= 1\n", rf.me, it, rf.nextIndex[it], 1)
@@ -1027,7 +1054,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 				go rf.persist()
 			}
 
-			time.Sleep(time.Millisecond * 20)
+			time.Sleep(time.Millisecond * 10)
 		}
 	}()
 

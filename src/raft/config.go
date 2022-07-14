@@ -591,7 +591,7 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
-				// DEBUG(dLog2, "S0 index(%d) nd(%v) cmd1(%v) expectedServers(%v) cmd(%v)\n",index, nd, cmd1, expectedServers, cmd)
+				DEBUG(dLog2, "S0 index(%d) nd(%v) cmd1(%v) expectedServers(%v) cmd(%v)\n",index, nd, cmd1, expectedServers, cmd)
 				if nd > 0 && nd >= expectedServers { 
 					// committed
 					if cmd1 == cmd {
