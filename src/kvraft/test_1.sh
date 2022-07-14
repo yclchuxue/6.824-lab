@@ -17,3 +17,19 @@
 
 python3 ./dstest.py TestBasic3A \
                     -r -p10 -n
+
+
+# TestBasic3A
+# TestSpeed3A
+# TestConcurrent3A
+# TestUnreliable3A
+# TestUnreliableOneKey3A
+# TestOnePartition3A
+
+# TestManyPartitionsOneClient3A
+# TestManyPartitionsManyClients3A
+# TestPersistConcurrent3A
+# TestPersistConcurrentUnreliable3A
+# TestPersistPartition3A
+# TestPersistPartitionUnreliable3A
+# TestPersistPartitionUnreliableLinearizable3A
