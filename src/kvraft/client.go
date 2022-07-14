@@ -2,23 +2,29 @@ package kvraft
 
 import (
 	"crypto/rand"
-	"fmt"
+	// "fmt"
+	// "time"
+
+	//"fmt"
 	"math/big"
 
 	"6.824/labrpc"
 )
 
-
 type Clerk struct {
-	servers []*labrpc.ClientEnd
-	leader int
+	servers   []*labrpc.ClientEnd
+	leader    int
+	ice       bool
+	cli_index int64
+	cmd_index int64
+	send_try  int
 	// You will have to modify this struct.
 }
 
 func nrand() int64 {
 	max := big.NewInt(int64(1) << 62)
 	bigx, _ := rand.Int(rand.Reader, max)
-	x := bigx.Int64()
+	x := bigx.Int64() % 5
 	return x
 }
 
@@ -26,6 +32,18 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
 	ck.leader = 0
+	ck.send_try = 3
+
+	// node, err := snowflake.NewNode(1)
+	// if err != nil {
+	// 	DEBUG(err)
+	// }
+	LOGinit()
+
+	ck.cli_index = nrand()
+	// node.Generate().Int64()
+	ck.cmd_index = 0
+	ck.ice = false
 	// You'll have to add code here.
 	return ck
 }
@@ -46,33 +64,68 @@ func (ck *Clerk) Get(key string) string {
 
 	// You will have to modify this function.
 
-	args := GetArgs{}
+	// var start time.Time
+	// start = time.Now()
+	//ti := time.Since(start).Milliseconds()
 
+	ck.cmd_index++
+
+	args := GetArgs{}
 	args.Key = key
+	args.CIndex = ck.cli_index
+	args.OIndex = ck.cmd_index
 
 	reply := GetReply{}
 
 	// i := int(nrand())%(len(ck.servers))
 
 	for i := ck.leader; i < len(ck.servers); {
+		// if ck.ice {
+			DEBUG(dInfo, "C%d send Get key(%v) Cindex(%v) OIndex(%v)\n", ck.cli_index, args.Key, args.CIndex, args.OIndex)
+		// }
 		ok := ck.servers[i].Call("KVServer.Get", &args, &reply)
 		if ok {
-			
+			ck.send_try = 3
 			if reply.Err == ErrWrongLeader {
 				i++
-				if i == len(ck.servers){
+				if i == len(ck.servers) {
 					i = 0
 				}
-				//fmt.Println("Get fail key = ", key, "value = ", reply.Value)
-			} else if reply.Err == OK{
+				reply = GetReply{}
+				if ck.ice {
+					DEBUG(dInfo, "C%d Get fail key(%v) value(%v)\n", ck.cli_index, args.Key, reply.Value)
+				}
+			} else if reply.Err == OK {
+				ck.ice = true
+				// if ck.ice {
+				// 	ti := time.Since(start).Milliseconds()
+				// 	fmt.Println("time = ", ti)
+				// 	ck.ice = false
+				// }
 				ck.leader = i
-				fmt.Println("Get success key = ", key, "value = ", reply.Value)
+				DEBUG(dInfo, "C%d Get success key(%v) value(%v) r.index(%v)\n", ck.cli_index, args.Key, reply.Value, reply.Index)
 				return reply.Value
-			}else{
+			} else {
+				ck.ice = true
 				ck.leader = i
-				fmt.Println("Get nil key = ", key, "value = ", reply.Value)
+				// if ck.ice {
+				// 	ti := time.Since(start).Milliseconds()
+				// 	fmt.Println("time = ", ti)
+				// 	ck.ice = false
+				// }
+				DEBUG(dInfo, "C%d Get nil key(%v) value(%v) r.index(%v)\n", ck.cli_index, args.Key, reply.Value, reply.Index)
 				return reply.Value
 			}
+		} else {
+			if ck.send_try != 0 {
+				ck.send_try--
+			} else {
+				i++
+				if i == len(ck.servers) {
+					i = 0
+				}
+			}
+			DEBUG(dInfo, "C%d ERROR Get Key(%v)\n", ck.cli_index, args.Key)
 		}
 	}
 
@@ -91,45 +144,82 @@ func (ck *Clerk) Get(key string) string {
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
+
+	// var start time.Time
+	// start = time.Now()
+	ck.cmd_index++
+
 	args := PutAppendArgs{
-		Key: key,
-		Value: value,
-		Op: op,
+		Key:    key,
+		Value:  value,
+		Op:     op,
+		CIndex: ck.cli_index,
+		OIndex: ck.cmd_index,
 	}
 
 	reply := PutAppendReply{}
 
 	// i := int(nrand())%(len(ck.servers))
-	
+
 	for i := ck.leader; i < len(ck.servers); {
+		// if ck.ice {
+			DEBUG(dInfo, "C%d send %v Key(%v) value(%v) CIndex(%v) OIndex(%v)\n", ck.cli_index, args.Op, args.Key, args.Value, args.CIndex, args.OIndex)
+		// }
 		ok := ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
 		if ok {
-			
+			ck.send_try = 3
 			if reply.Err == ErrWrongLeader {
 				i++
-				if i == len(ck.servers){
+				if i == len(ck.servers) {
 					i = 0
 				}
-				//fmt.Println(args.Op, "PutAppend fail key = ", key, "value = ", args.Value)
-			} else if reply.Err == OK{
+				reply = PutAppendReply{}
+				if ck.ice {
+					DEBUG(dInfo, "C%d %v err(%v) fail key(%v) value(%v) r.index(%v)\n", ck.cli_index, args.Op, reply.Err, key, args.Value, reply.Index)
+				}
+			} else if reply.Err == OK {
 				ck.leader = i
-				fmt.Println(args.Op, "PutAppend success key = ", key, "value = ", args.Value)
+				ck.ice = true
+				// if ck.ice {
+				// 	ti := time.Since(start).Milliseconds()
+				// 	fmt.Println("time = ", ti)
+				// 	ck.ice = false
+				// }
+				DEBUG(dInfo, "C%d %v err(%v), success key(%v) value(%v) r.Index(%v)\n", ck.cli_index, args.Op, reply.Err, key, args.Value, reply.Index)
 				break
-			}else{
+			} else {
+				ck.ice = true
 				ck.leader = i
-				fmt.Println(args.Op, "PutAppend nil key = ", key, "value = ", args.Value)
-				break
+				// if ck.ice {
+				// 	ti := time.Since(start).Milliseconds()
+				// 	fmt.Println("time = ", ti)
+				// 	ck.ice = false
+				// }
+				DEBUG(dInfo, "C%d %v err(%v) nil key(%v) value(%v) r.index(%v)\n", ck.cli_index, args.Op, reply.Err, key, args.Value, reply.Index)
+				if args.Op != "Append" {
+					break
+				}
 			}
+		} else {
+			if ck.send_try != 0 {
+				ck.send_try--
+			} else {
+				i++
+				if i == len(ck.servers) {
+					i = 0
+				}
+			}
+			DEBUG(dInfo, "C%d ERROR %v key(%v) value(%v)\n", ck.cli_index, args.Op, args.Key, args.Value)
 		}
 	}
 }
 
 func (ck *Clerk) Put(key string, value string) {
-	// fmt.Println("Put key = ", key, "value = ", value)
+	DEBUG(dInfo, "C%d Put key(%v) value(%v)\n", ck.cli_index, key, value)
 	ck.PutAppend(key, value, "Put")
 }
 
 func (ck *Clerk) Append(key string, value string) {
-	// fmt.Println("Append key = ", key, "value = ", value)
+	DEBUG(dInfo, "C%d Append key(%v) value(%v)\n", ck.cli_index, key, value)
 	ck.PutAppend(key, value, "Append")
 }

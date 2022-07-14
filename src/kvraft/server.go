@@ -97,6 +97,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		// DEBUG("time to raft = ", ti)
 		val, ok := kv.KVS[O.Key]
 		if ok {
+			DEBUG(dLeader, "S%d %v key(%v) value(%v) OK from(C%v)\n", kv.me, O.Operate, O.Key, O.Value, args.CIndex)
 			reply.Err = OK
 			reply.Value = val
 		} else {
@@ -242,6 +243,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	go func() {
 		for m := range kv.applyCh {
 			kv.mu.Lock()
+			DEBUG(dLog, "S%d CommandValid(%v) applyindex(%v) CommandIndex(%v)\n", kv.me, m.CommandValid, kv.aplplyindex, m.CommandIndex)
 			if m.CommandValid && kv.aplplyindex < m.CommandIndex {
 				kv.aplplyindex = m.CommandIndex
 				kv.cond.Broadcast()
