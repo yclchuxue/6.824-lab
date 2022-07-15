@@ -44,7 +44,7 @@ type KVServer struct {
 
 	aplplyindex    int
 	cmd_nums_count int
-	cmd_done_count int
+	cmd_done_index int
 
 	Leader bool
 
@@ -52,8 +52,14 @@ type KVServer struct {
 }
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
-
+	DEBUG(dLeader, "S%d <-- C%v Get key(%v)\n", kv.me, args.CIndex, args.Key)
 	kv.mu.Lock()
+
+	if kv.killed() {
+		kv.mu.Unlock()
+		return
+	}
+
 	in, okk := kv.CCM[args.CIndex]
 	if okk && in == args.OIndex {
 		reply.Err = OK //had done
@@ -81,16 +87,19 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	if !isLeader {
 		reply.Err = ErrWrongLeader
 		kv.mu.Lock()
+		DEBUG(dLeader, "S%d <-- C%v Get key(%v) but not leader\n", kv.me, args.CIndex, args.Key)
 		kv.Leader = false
 		kv.mu.Unlock()
 	} else {
 		kv.mu.Lock()
 		kv.Leader = true
+		
 		for index > kv.aplplyindex {
+			DEBUG(dLeader, "S%d <-- C%v Get key(%v) wait\n", kv.me, args.CIndex, args.Key)
 			kv.cond.Wait()
-			DEBUG(dLeader, "S%d get index(%v) applyindex(%v) in Get the cmd_index(%v) from(C%v)\n", kv.me, index, kv.aplplyindex, args.OIndex, args.CIndex)
+			DEBUG(dLeader, "S%d Get index(%v) applyindex(%v) in Get the cmd_index(%v) from(C%v)\n", kv.me, index, kv.aplplyindex, args.OIndex, args.CIndex)
 		}
-
+		DEBUG(dLeader, "S%d update CCM[%v] from %v to %v\n", kv.me, args.CIndex, kv.CCM[args.CIndex], args.OIndex)
 		kv.CCM[args.CIndex] = args.OIndex
 		DEBUG(dLeader, "S%d kvs(%v) index(%v) from(%v)\n", kv.me, kv.KVS, index, kv.me)
 		// ti := time.Since(start).Milliseconds()
@@ -100,6 +109,9 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 			DEBUG(dLeader, "S%d %v key(%v) value(%v) OK from(C%v)\n", kv.me, O.Operate, O.Key, O.Value, args.CIndex)
 			reply.Err = OK
 			reply.Value = val
+			if kv.cmd_done_index < index {
+				kv.cmd_done_index = index
+			}
 		} else {
 			DEBUG(dLeader, "S%d %v key(%v) value(%v) this map do not have value map %v from(C%v)\n", kv.me, O.Operate, O.Key, O.Value, kv.KVS, args.CIndex)
 			reply.Err = ErrNoKey
@@ -112,8 +124,14 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
-
+	DEBUG(dLeader, "S%d <-- C%v %v key(%v) value(%v) \n", kv.me, args.CIndex, args.Op, args.Key, args.Value)
 	kv.mu.Lock()
+
+	if kv.killed() {
+		kv.mu.Unlock()
+		return
+	}
+
 	in, okk := kv.CCM[args.CIndex]
 	if okk && in == args.OIndex {
 		reply.Err = OK //had done
@@ -135,6 +153,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	index, _, isLeader := kv.rf.Start(O)
 	reply.Index = index
 	if !isLeader {
+		DEBUG(dLeader, "S%d <-- C%v %v key(%v) value(%v) but not leader\n", kv.me, args.CIndex, args.Op, args.Key, args.Value)
 		reply.Err = ErrWrongLeader
 		kv.mu.Lock()
 		kv.Leader = false
@@ -144,37 +163,13 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		kv.mu.Lock()
 		kv.Leader = true
 		for index > kv.aplplyindex {
+			DEBUG(dLeader, "S%d <-- C%v %v key(%v) value(%v) index(%v) wait\n", kv.me, args.CIndex, args.Op, args.Key, args.Value, index)
 			kv.cond.Wait()
-			DEBUG(dLeader, "S%d putappend index(%v) applyindex(%v) Op(%v) this cmd_index(%v) from(C%v)\n", kv.me, index, kv.aplplyindex, args.Op, args.OIndex, args.CIndex)
+			DEBUG(dLeader, "S%d %v index(%v) applyindex(%v)  this cmd_index(%v) from(C%v)\n", kv.me, args.Op, index, kv.aplplyindex, args.OIndex, args.CIndex)
 		}
-
-		// ti := time.Since(start).Milliseconds()
-		// DEBUG("time to raft = ", ti)
-		if O.Operate == "Append" {
-			kv.CCM[args.CIndex] = args.OIndex
-			val, ok := kv.KVS[O.Key]
-			if ok {
-				reply.Err = OK
-				DEBUG(dLeader, "S%d BBBBBBB append Key(%v) from %v to %v from(C%v)\n", kv.me, O.Key, kv.KVS[O.Key], kv.KVS[O.Key]+val, args.CIndex)
-				kv.KVS[O.Key] = val + O.Value
-			} else {
-				reply.Err = OK
-				DEBUG(dLeader, "S%d BBBBBBB append key(%v) from nil to %v from(C%v)\n", kv.me, O.Key, O.Value, args.CIndex)
-				kv.KVS[O.Key] = O.Value
-			}
-		} else {
-			kv.CCM[args.CIndex] = args.OIndex
-			_, ok := kv.KVS[O.Key]
-			if ok {
-				reply.Err = OK
-				DEBUG(dLeader, "S%d AAAAAAA put key(%v) from %v to %v from(C%v)\n", kv.me, O.Key, kv.KVS[O.Key], O.Value, args.CIndex)
-				kv.KVS[O.Key] = O.Value
-			} else {
-				reply.Err = OK
-				DEBUG(dLeader, "S%d AAAAAAA put key(%v) from nil to %v from(C%v)\n", kv.me, O.Key, O.Value, args.CIndex)
-				kv.KVS[O.Key] = O.Value
-			}
-		}
+		DEBUG(dLeader, "S%d update CCM[%v] from %v to %v key(%v) value(%v)\n", kv.me, args.CIndex, kv.CCM[args.CIndex], args.OIndex, args.Key, args.Value)
+		kv.CCM[args.CIndex] = args.OIndex
+		reply.Err = OK
 
 		// DEBUG(O.Operate, O.Key, O.Value)
 		kv.mu.Unlock()
@@ -229,7 +224,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.mu = sync.Mutex{}
 	kv.cond = *sync.NewCond(&kv.mu)
 	kv.aplplyindex = 0
-	kv.cmd_done_count = 0
+	kv.cmd_done_index = 0
 	kv.cmd_nums_count = 0
 	kv.Leader = false
 
@@ -242,14 +237,16 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 	go func() {
 		for m := range kv.applyCh {
-			kv.mu.Lock()
-			DEBUG(dLog, "S%d CommandValid(%v) applyindex(%v) CommandIndex(%v)\n", kv.me, m.CommandValid, kv.aplplyindex, m.CommandIndex)
-			if m.CommandValid && kv.aplplyindex < m.CommandIndex {
-				kv.aplplyindex = m.CommandIndex
-				kv.cond.Broadcast()
+			if !kv.killed() {
+				kv.mu.Lock()
+				O := m.Command.(Op)
+				DEBUG(dLog, "S%d CommandValid(%v) applyindex(%v) CommandIndex(%v) %v key(%v) value(%v)\n", kv.me, m.CommandValid, kv.aplplyindex, m.CommandIndex, O.Operate, O.Key, O.Value)
 
-				if !kv.Leader {
-					O := m.Command.(Op)
+				if m.CommandValid && kv.aplplyindex+1 == m.CommandIndex {
+					kv.aplplyindex = m.CommandIndex
+
+					// if kv.cmd_done_index < kv.aplplyindex {
+
 					if O.Operate == "Append" {
 						val, ok := kv.KVS[O.Key]
 						if ok {
@@ -269,9 +266,11 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 							kv.KVS[O.Key] = O.Value
 						}
 					}
+					// }
+					kv.cond.Broadcast()
 				}
+				kv.mu.Unlock()
 			}
-			kv.mu.Unlock()
 		}
 	}()
 
