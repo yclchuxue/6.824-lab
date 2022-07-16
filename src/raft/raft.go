@@ -206,10 +206,13 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	le := index - rf.X
 	rf.lastIndex = index
 	rf.lastTerm = rf.log[le].Logterm
+	if le < 0 {
+		fmt.Println("ERROR in snapshot in leader for le")
+	}
 	rf.snapshot = snapshot
 	rf.log = rf.log[le:]
-	if len(rf.log) == 0 {
-		fmt.Println("ERROR in snapshot in leader")
+	if len(rf.log) <= 0 {
+		fmt.Println("ERROR in snapshot in leader for log")
 	}
 	rf.X = index
 	for i := range rf.peers {
@@ -492,7 +495,7 @@ func (rf *Raft) InstallSnapshot(args *SnapShotArgs, reply *SnapShotReply) {
 				},
 			}
 			rf.log = array
-			if len(rf.log) == 0 {
+			if len(rf.log) <= 0 {
 				fmt.Println("ERROR in snapshot in follower log < snap")
 			}
 			rf.X = args.LastIncludedIndex
@@ -500,7 +503,7 @@ func (rf *Raft) InstallSnapshot(args *SnapShotArgs, reply *SnapShotReply) {
 		} else {
 			le := args.LastIncludedIndex - rf.log[0].LogIndex
 			rf.log = rf.log[le:]
-			if len(rf.log) == 0 {
+			if len(rf.log) <= 0 {
 				fmt.Println("ERROR in snapshot in follower log > snap")
 			}
 			rf.X = args.LastIncludedIndex
@@ -888,6 +891,9 @@ func (rf *Raft) requestvotes(term int) {
 									rf.matchIndex[i] = 1
 								}
 							}
+							
+							// go rf.Start(nil)
+
 							go rf.appendentries(rf.currentTerm)
 							DEBUG(dLeader, "S%d  be Leader B\n", rf.me)
 
@@ -1007,7 +1013,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		for rf.killed() == false {
 
 			rf.mu.Lock()
-			if startindex < rf.log[0].LogIndex {
+			if len(rf.log) > 0 && startindex < rf.log[0].LogIndex {
 				node := ApplyMsg{
 					CommandValid:  false,
 					SnapshotValid: true,
