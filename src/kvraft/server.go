@@ -104,6 +104,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		// kv.Cli_cmd = O
 		for index > kv.aplplyindex {
 			DEBUG(dLeader, "S%d <-- C%v Get key(%v) wait %v\n", kv.me, args.CIndex, args.Key, args.Test)
+			// go kv.timeout()
 			kv.cond.Wait()
 			if _, isLdeader := kv.rf.GetState(); !isLdeader {
 				DEBUG(dLeader, "S%d is not leader\n", kv.me)
@@ -158,9 +159,9 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	O := Op{
 		Cli_index: args.CIndex,
 		Cmd_index: args.OIndex,
-		Operate: args.Op,
-		Key:     args.Key,
-		Value:   args.Value,
+		Operate:   args.Op,
+		Key:       args.Key,
+		Value:     args.Value,
 	}
 	// var start time.Time
 	// start = time.Now()
@@ -180,6 +181,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		kv.Leader = true
 		for index > kv.aplplyindex {
 			DEBUG(dLeader, "S%d <-- C%v %v key(%v) value(%v) index(%v) wait test%v\n", kv.me, args.CIndex, args.Op, args.Key, args.Value, index, args.Test)
+			// go kv.timeout()
 			kv.cond.Wait()
 			DEBUG(dLeader, "S%d kv.Apl_cmd.Operate(%v) from(%v) index(%v) applyindex(%v)\n", kv.me, kv.Apl_cmd.Operate, args.CIndex, index, kv.aplplyindex)
 			if _, isLdeader := kv.rf.GetState(); !isLdeader {
@@ -293,19 +295,21 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 				}
 				kv.mu.Unlock()
 			}
-			
+
 		}
 	}()
 
 	// go func() {
 	// 	for {
-	// 		kv.mu.Lock()
 	// 		_, isLeader := kv.rf.GetState()
-	// 		kv.mu.Unlock()
 	// 		if !isLeader {
+	// 			kv.mu.Lock()
+	// 			// DEBUG(dLog, "S%d this server not leader\n", kv.me)
 	// 			kv.cond.Broadcast()
 	// 			kv.mu.Unlock()
 	// 		}
+	// 		time.Sleep(time.Microsecond * 50)
+
 	// 	}
 	// }()
 
@@ -313,3 +317,14 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 	return kv
 }
+
+// func (kv *KVServer) timeout() {
+// 	time.Sleep(time.Microsecond * 25)
+// 	_, isLeader := kv.rf.GetState()
+// 	if !isLeader {
+// 		kv.mu.Lock()
+// 		// DEBUG(dLog, "S%d this server not leader\n", kv.me)
+// 		kv.cond.Broadcast()
+// 		kv.mu.Unlock()
+// 	}
+// }
