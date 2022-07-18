@@ -175,10 +175,10 @@ func (rf *Raft) readPersist(data []byte, snapshot []byte) {
 		rf.log = Usr.Log
 		rf.X = Usr.X
 		rf.snapshot = snapshot
-		rf.lastIndex = rf.log[0].LogIndex
+		rf.lastIndex = rf.X
 		rf.lastTerm = rf.log[0].Logterm
-		rf.commitIndex = rf.log[0].LogIndex
-		rf.lastApplied = rf.log[0].LogIndex
+		rf.commitIndex = rf.X
+		rf.lastApplied = rf.X
 		DEBUG(dLog, "S%d 恢复log lastindex(%d) lastapplied(%d) commitindex(%d)\n", rf.me, rf.lastIndex, rf.lastApplied, rf.commitIndex)
 		rf.votedFor = Usr.VotedFor
 		rf.matchIndex[rf.me] = len(rf.log) - 1
@@ -485,8 +485,8 @@ func (rf *Raft) InstallSnapshot(args *SnapShotArgs, reply *SnapShotReply) {
 
 	rf.mu.Lock()
 	reply.Term = rf.currentTerm
-	if args.Term >= rf.currentTerm && args.LeaderId == rf.leaderId && args.LastIncludedIndex > rf.log[0].LogIndex{
-		if rf.log[len(rf.log)-1].LogIndex < args.LastIncludedIndex || rf.log[0].LogIndex > args.LastIncludedIndex {
+	if args.Term >= rf.currentTerm && args.LeaderId == rf.leaderId && args.LastIncludedIndex > rf.X{
+		if rf.log[len(rf.log)-1].LogIndex < args.LastIncludedIndex || rf.X > args.LastIncludedIndex {
 			array := []LogNode{
 				{
 					LogIndex: args.LastIncludedIndex,
@@ -499,9 +499,9 @@ func (rf *Raft) InstallSnapshot(args *SnapShotArgs, reply *SnapShotReply) {
 				fmt.Println("ERROR in snapshot in follower log < snap")
 			}
 			rf.X = args.LastIncludedIndex
-			rf.matchIndex[rf.me] = rf.log[0].LogIndex
+			rf.matchIndex[rf.me] = rf.X
 		} else {
-			le := args.LastIncludedIndex - rf.log[0].LogIndex
+			le := args.LastIncludedIndex - rf.X
 			rf.log = rf.log[le:]
 			if len(rf.log) <= 0 {
 				fmt.Println("ERROR in snapshot in follower log > snap")
@@ -656,8 +656,8 @@ func (rf *Raft) appendentries(term int) {
 				if rf.nextIndex[it]-1 > index {
 					fmt.Println("AAAAAAAAAAAAAAAAA", rf.nextIndex[it])
 				}
-				if rf.tindex != rf.log[0].LogIndex || index != len(rf.log)-1{
-					rf.tindex = rf.log[0].LogIndex
+				if rf.tindex != rf.X || index != len(rf.log)-1{
+					rf.tindex = rf.X
 					DEBUG(dLeader, "S%d appendentries error to exit because tindex or loglen changed\n", rf.me)
 					rf.mu.Unlock()
 					wg.Done()
@@ -709,13 +709,13 @@ func (rf *Raft) appendentries(term int) {
 						//统计复制成功的个数，超过半数就提交（修改commitindex）
 
 						rf.matchIndex[it] = index
-						if rf.tindex == rf.log[0].LogIndex {
+						if rf.tindex == rf.X {
 							DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success\n", rf.me, it, rf.nextIndex[it], commit - rf.X + 1)
 							rf.nextIndex[it] = commit - rf.X + 1 //index + 1
 						}else{
-							if commit >= rf.log[0].LogIndex {
-								DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success?\n", rf.me, it, rf.nextIndex[it], commit - rf.log[0].LogIndex + 1)
-								rf.nextIndex[it] = commit - rf.log[0].LogIndex + 1
+							if commit >= rf.X {
+								DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success?\n", rf.me, it, rf.nextIndex[it], commit - rf.X + 1)
+								rf.nextIndex[it] = commit - rf.X + 1
 							}else{
 								DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success 1\n", rf.me, it, rf.nextIndex[it], 1)
 								rf.nextIndex[it] = 1
@@ -751,7 +751,7 @@ func (rf *Raft) appendentries(term int) {
 								DEBUG(dLog, "S%d to %d 匹配失败 tfi(%d)\n", rf.me, it, reply.Termfirstindex)
 
 								//跳过整个冲突任期----可能需要判断该index是否存在
-								if reply.Termfirstindex < rf.log[0].LogIndex { //跟随者日志index小于leader的第一条日志index，发快照同步。
+								if reply.Termfirstindex < rf.X { //跟随者日志index小于leader的第一条日志index，发快照同步。
 									DEBUG(dLog2, "S%d send snapShot to %d\n", rf.me, it)
 									go rf.sendsnapshot(rf.currentTerm, it)
 								} else if reply.Termfirstindex-rf.X > 1 {
@@ -1005,7 +1005,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	go func() {
 		rf.mu.Lock()
-		startindex := rf.log[0].LogIndex
+		startindex := rf.X
 		DEBUG(dLog2, "S%d i = 1 MMMMMMMMMMMMMMMM\n", rf.me)
 		rf.mu.Unlock()
 		i := 1
@@ -1013,7 +1013,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		for rf.killed() == false {
 
 			rf.mu.Lock()
-			if len(rf.log) > 0 && startindex < rf.log[0].LogIndex {
+			if len(rf.log) > 0 && startindex < rf.X {
 				node := ApplyMsg{
 					CommandValid:  false,
 					SnapshotValid: true,
@@ -1022,7 +1022,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 					SnapshotIndex: rf.lastIndex,
 				}
 				DEBUG(dLog2, "S%d snapshot to applymsg lastindex(%d)\n", rf.me, node.SnapshotIndex)
-				startindex = rf.log[0].LogIndex
+				startindex = rf.X
 				rf.lastApplied = rf.lastIndex
 
 				rf.mu.Unlock()
