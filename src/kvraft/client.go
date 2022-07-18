@@ -4,11 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"sync"
-
-	// "fmt"
-	// "time"
-
-	//"fmt"
+	//"time"
 	"math/big"
 
 	"6.824/labrpc"
@@ -66,15 +62,17 @@ func (ck *Clerk) Get(key string) string {
 	// start = time.Now()
 	//ti := time.Since(start).Milliseconds()
 	ck.mu.Lock()
-	DEBUG(dInfo, "S%d Get key(%v)\n", ck.cli_index, key)
-	DEBUG(dInfo, "S%d cmd_index(%v)1\n", ck.cli_index, ck.cmd_index)
+	DEBUG(dClient, "S%d Get key(%v)\n", ck.cli_index, key)
+	DEBUG(dClient, "S%d cmd_index(%v)1\n", ck.cli_index, ck.cmd_index)
 	ck.cmd_index = ck.cmd_index + 1
-	DEBUG(dInfo, "S%d cmd_index(%v)2\n", ck.cli_index, ck.cmd_index)
-	var send_try int
+	DEBUG(dClient, "S%d cmd_index(%v)2\n", ck.cli_index, ck.cmd_index)
+	// var send_try int
+	test := 0
 	args := GetArgs{
 		Key:    key,
 		CIndex: ck.cli_index,
 		OIndex: ck.cmd_index,
+		Test: test,
 	}
 	i := ck.leader
 	reply := GetReply{}
@@ -83,15 +81,17 @@ func (ck *Clerk) Get(key string) string {
 	ck.mu.Unlock()
 
 	for i < le {
-		DEBUG(dInfo, "S%d send to S%v Get key(%v) Cindex(%v) OIndex(%v) lens(%v)\n", ck.cli_index, i, args.Key, args.CIndex, args.OIndex, le)
+		args.Test++
+		DEBUG(dClient, "S%d send to S%v Get key(%v) Cindex(%v) OIndex(%v) test(%v)\n", ck.cli_index, i, args.Key, args.CIndex, args.OIndex, args.Test)
 		ok := ck.servers[i].Call("KVServer.Get", &args, &reply)
+		DEBUG(dClient, "S%d ok(%v) ERR(%v) from S%v in test%v\n", ck.cli_index, ok, reply.Err, i, args.Test)
 		ck.mu.Lock()
 		if ok {
-			send_try = 3
+			// send_try = 3
 			if reply.Err == ErrWrongLeader {
 				reply = GetReply{}
 				if ck.ice {
-					DEBUG(dInfo, "S%d Get fail key(%v) value(%v) from(S%v)\n", ck.cli_index, args.Key, reply.Value, i)
+					DEBUG(dClient, "S%d Get fail key(%v) value(%v) from(S%v)\n", ck.cli_index, args.Key, reply.Value, i)
 				}
 				i++
 				if i == len(ck.servers) {
@@ -105,7 +105,7 @@ func (ck *Clerk) Get(key string) string {
 				// 	ck.ice = false
 				// }
 				ck.leader = i
-				DEBUG(dInfo, "S%d Get success key(%v) value(%v) r.index(%v) from(S%v)\n", ck.cli_index, args.Key, reply.Value, reply.Index, i)
+				DEBUG(dClient, "S%d Get success key(%v) value(%v) r.index(%v) from(S%v)\n", ck.cli_index, args.Key, reply.Value, reply.Index, i)
 				ck.mu.Unlock()
 				return reply.Value
 			} else {
@@ -116,20 +116,20 @@ func (ck *Clerk) Get(key string) string {
 				// 	fmt.Println("time = ", ti)
 				// 	ck.ice = false
 				// }
-				DEBUG(dInfo, "S%d Get nil key(%v) value(%v) r.index(%v) from(S%v)\n", ck.cli_index, args.Key, reply.Value, reply.Index, i)
+				DEBUG(dClient, "S%d Get nil key(%v) value(%v) r.index(%v) from(S%v)\n", ck.cli_index, args.Key, reply.Value, reply.Index, i)
 				ck.mu.Unlock()
 				return reply.Value
 			}
 		} else {
-			DEBUG(dInfo, "S%d ERROR Get Key(%v) from(S%v)\n", ck.cli_index, args.Key, i)
-			if send_try != 0 {
-				send_try--
-			} else {
+			DEBUG(dClient, "S%d ERROR Get Key(%v) from(S%v)\n", ck.cli_index, args.Key, i)
+			// if send_try != 0 {
+			// 	send_try--
+			// } else {
 				i++
 				if i == le {
 					i = 0
 				}
-			}
+			// }
 		}
 		ck.mu.Unlock()
 	}
@@ -153,34 +153,41 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// var start time.Time
 	// start = time.Now()
 	ck.mu.Lock()
-	DEBUG(dInfo, "S%d cmd_index(%v)3\n", ck.cli_index, ck.cmd_index)
+	DEBUG(dClient, "S%d cmd_index(%v)3\n", ck.cli_index, ck.cmd_index)
 	ck.cmd_index = ck.cmd_index + 1
-	DEBUG(dInfo, "S%d cmd_index(%v)4\n", ck.cli_index, ck.cmd_index)
+	DEBUG(dClient, "S%d cmd_index(%v)4\n", ck.cli_index, ck.cmd_index)
 	// var send_try int
+	test := 0
 	args := PutAppendArgs{
 		Key:    key,
 		Value:  value,
 		Op:     op,
 		CIndex: ck.cli_index,
 		OIndex: ck.cmd_index,
+		Test: test,
 	}
 	i := ck.leader
 	le := len(ck.servers)
 	// i := int(nrand())%(len(ck.servers))
 	ck.mu.Unlock()
 	for i < le {
-		DEBUG(dInfo, "S%d send to S%v %v Key(%v) value(%v) CIndex(%v) OIndex(%v) lens(%v)\n", ck.cli_index, i, args.Op, args.Key, args.Value, args.CIndex, args.OIndex, le)
-
+		args.Test++
+		DEBUG(dClient, "S%d send to S%v %v Key(%v) value(%v) CIndex(%v) OIndex(%v) test%v\n", ck.cli_index, i, args.Op, args.Key, args.Value, args.CIndex, args.OIndex, args.Test)
 		reply := PutAppendReply{}
+		//fmt.Println("i = ", i)
+		// var start time.Time
+		// start = time.Now()
 		ok := ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
-		DEBUG(dInfo, "S%d ok(%v) ERR(%v) from S%v\n", ck.cli_index, ok, reply.Err, i)
+		// ti := time.Since(start).Milliseconds()
+		// fmt.Println("time = ", ti)
+		DEBUG(dClient, "S%d ok(%v) ERR(%v) from S%v in test%v\n", ck.cli_index, ok, reply.Err, i, args.Test)
 		ck.mu.Lock()
 		if ok {
 			// send_try = 3
 			if reply.Err == ErrWrongLeader {
 				reply = PutAppendReply{}
 				if ck.ice {
-					DEBUG(dInfo, "S%d %v err(%v) fail key(%v) value(%v) r.index(%v) from(S%v)1\n", ck.cli_index, args.Op, reply.Err, key, args.Value, reply.Index, i)
+					DEBUG(dClient, "S%d %v err(%v) fail key(%v) value(%v) r.index(%v) from(S%v)1\n", ck.cli_index, args.Op, reply.Err, key, args.Value, reply.Index, i)
 				}
 				i++
 				if i == len(ck.servers) {
@@ -194,10 +201,10 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 				// 	fmt.Println("time = ", ti)
 				// 	ck.ice = false
 				// }
-				DEBUG(dInfo, "S%d %v err(%v), success key(%v) value(%v) r.Index(%v) from(S%v)2\n", ck.cli_index, args.Op, reply.Err, key, args.Value, reply.Index, i)
+				DEBUG(dClient, "S%d %v err(%v), success key(%v) value(%v) r.Index(%v) from(S%v)2\n", ck.cli_index, args.Op, reply.Err, key, args.Value, reply.Index, i)
 				ck.mu.Unlock()
 				break
-			} 
+			}
 			// else {
 			// 	ck.ice = true
 			// 	ck.leader = i
@@ -206,14 +213,14 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 			// 	// 	fmt.Println("time = ", ti)
 			// 	// 	ck.ice = false
 			// 	// }
-			// 	DEBUG(dInfo, "S%d %v err(%v) nil key(%v) value(%v) r.index(%v) from(S%v)3\n", ck.cli_index, args.Op, reply.Err, key, args.Value, reply.Index, i)
+			// 	DEBUG(dClient, "S%d %v err(%v) nil key(%v) value(%v) r.index(%v) from(S%v)3\n", ck.cli_index, args.Op, reply.Err, key, args.Value, reply.Index, i)
 			// 	if args.Op != "Append" {
 			// 		ck.mu.Unlock()
 			// 		break
 			// 	}
 			// }
 		} else {
-			DEBUG(dInfo, "S%d ERROR %v key(%v) value(%v) from(S%v)\n", ck.cli_index, args.Op, args.Key, args.Value, i)
+			DEBUG(dClient, "S%d ERROR %v key(%v) value(%v) from(S%v)\n", ck.cli_index, args.Op, args.Key, args.Value, i)
 			// if send_try != 0 {
 			// 	send_try--
 			// } else {
@@ -228,11 +235,11 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 }
 
 func (ck *Clerk) Put(key string, value string) {
-	DEBUG(dInfo, "S%d Put key(%v) value(%v)\n", ck.cli_index, key, value)
+	DEBUG(dClient, "S%d Put key(%v) value(%v)\n", ck.cli_index, key, value)
 	ck.PutAppend(key, value, "Put")
 }
 
 func (ck *Clerk) Append(key string, value string) {
-	DEBUG(dInfo, "S%d Append key(%v) value(%v)\n", ck.cli_index, key, value)
+	DEBUG(dClient, "S%d Append key(%v) value(%v)\n", ck.cli_index, key, value)
 	ck.PutAppend(key, value, "Append")
 }
