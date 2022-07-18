@@ -27,9 +27,9 @@ type Op struct {
 	// otherwise RPC will break.
 	Cli_index int64
 	Cmd_index int64
-	Operate string
-	Key     string
-	Value   string
+	Operate   string
+	Key       string
+	Value     string
 }
 
 type KVServer struct {
@@ -85,8 +85,8 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	O := Op{
 		Cli_index: args.CIndex,
 		Cmd_index: args.OIndex,
-		Operate: "Get",
-		Key:     args.Key,
+		Operate:   "Get",
+		Key:       args.Key,
 	}
 	// var start time.Time
 	// start = time.Now()
@@ -105,22 +105,15 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		for index > kv.aplplyindex {
 			DEBUG(dLeader, "S%d <-- C%v Get key(%v) wait %v\n", kv.me, args.CIndex, args.Key, args.Test)
 			kv.cond.Wait()
-			// if kv.Apl_cmd.Operate == "Leader" {
-			// 	reply.Err = ErrWrongLeader
-			// 	kv.mu.Unlock()
-			// 	return
-			// }
+			if _, isLdeader := kv.rf.GetState(); !isLdeader {
+				DEBUG(dLeader, "S%d is not leader\n", kv.me)
+				reply.Err = ErrWrongLeader
+				kv.mu.Unlock()
+				return
+			}
 			DEBUG(dLeader, "S%d Get index(%v) applyindex(%v) in Op(%v) the cmd_index(%v) from(C%v)\n", kv.me, index, kv.aplplyindex, kv.Apl_cmd.Operate, args.OIndex, args.CIndex)
 		}
 
-		// if index != kv.aplplyindex || O != kv.Apl_cmd {
-		// 	reply.Err = ErrWrongLeader
-		// 	kv.mu.Unlock()
-		// 	return
-		// }
-
-		DEBUG(dLeader, "S%d update CCM[%v] from %v to %v\n", kv.me, args.CIndex, kv.CCM[args.CIndex], args.OIndex)
-		kv.CCM[args.CIndex] = args.OIndex
 		DEBUG(dLeader, "S%d kvs(%v) index(%v) from(%v)\n", kv.me, kv.KVS, index, kv.me)
 		// ti := time.Since(start).Milliseconds()
 		// DEBUG("time to raft = ", ti)
@@ -163,6 +156,8 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	kv.mu.Unlock()
 
 	O := Op{
+		Cli_index: args.CIndex,
+		Cmd_index: args.OIndex,
 		Operate: args.Op,
 		Key:     args.Key,
 		Value:   args.Value,
@@ -187,22 +182,15 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 			DEBUG(dLeader, "S%d <-- C%v %v key(%v) value(%v) index(%v) wait test%v\n", kv.me, args.CIndex, args.Op, args.Key, args.Value, index, args.Test)
 			kv.cond.Wait()
 			DEBUG(dLeader, "S%d kv.Apl_cmd.Operate(%v) from(%v) index(%v) applyindex(%v)\n", kv.me, kv.Apl_cmd.Operate, args.CIndex, index, kv.aplplyindex)
-			// if kv.Apl_cmd.Operate == "Leader" {
-			// 	reply.Err = ErrWrongLeader
-			// 	kv.mu.Unlock()
-			// 	return
-			// }
+			if _, isLdeader := kv.rf.GetState(); !isLdeader {
+				DEBUG(dLeader, "S%d is not leader\n", kv.me)
+				reply.Err = ErrWrongLeader
+				kv.mu.Unlock()
+				return
+			}
 			DEBUG(dLeader, "S%d %v index(%v) applyindex(%v)  this cmd_index(%v) from(C%v)\n", kv.me, kv.Apl_cmd.Operate, index, kv.aplplyindex, args.OIndex, args.CIndex)
 		}
 
-		// if index != kv.aplplyindex || O != kv.Apl_cmd {
-		// 	reply.Err = ErrWrongLeader
-		// 	kv.mu.Unlock()
-		// 	return
-		// }
-
-		DEBUG(dLeader, "S%d update CCM[%v] from %v to %v key(%v) value(%v)\n", kv.me, args.CIndex, kv.CCM[args.CIndex], args.OIndex, args.Key, args.Value)
-		kv.CCM[args.CIndex] = args.OIndex
 		reply.Err = OK
 
 		// DEBUG(O.Operate, O.Key, O.Value)
@@ -273,48 +261,53 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 		for m := range kv.applyCh {
 			if !kv.killed() {
 				kv.mu.Lock()
-				// DEBUG(dLog, "S%d AAA CommandValid(%v) applyindex(%v) CommandIndex(%v) Cmd(%v)\n", kv.me, m.CommandValid, kv.aplplyindex, m.CommandIndex, m.Command)
-				// if m.CommandValid && kv.aplplyindex < m.CommandIndex && m.Command == nil {
-				// 	DEBUG(dLeader, "S%d one leader\n", kv.me)
-				// 	kv.Apl_cmd = Op{
-				// 		Operate: "Leader",
-				// 	}
-				// 	kv.cond.Broadcast()
-				// } else {
-					O := m.Command.(Op)
-					DEBUG(dLog, "S%d BBB CommandValid(%v) applyindex(%v) CommandIndex(%v) %v key(%v) value(%v)\n", kv.me, m.CommandValid, kv.aplplyindex, m.CommandIndex, O.Operate, O.Key, O.Value)
 
-					if m.CommandValid && kv.aplplyindex+1 == m.CommandIndex {
-						kv.aplplyindex = m.CommandIndex
-						kv.Apl_cmd = m.Command.(Op)
-						// if kv.cmd_done_index < kv.aplplyindex {
-						kv.cond.Broadcast()
-						if O.Operate == "Append" {
-							val, ok := kv.KVS[O.Key]
-							if ok {
-								DEBUG(dLog, "S%d BBBBBBB append Key(%v) from %v to %v from(me)\n", kv.me, O.Key, kv.KVS[O.Key], kv.KVS[O.Key]+O.Value)
-								kv.KVS[O.Key] = val + O.Value
-							} else {
-								DEBUG(dLog, "S%d BBBBBBB append key(%v) from nil to %v from(me)\n", kv.me, O.Key, O.Value)
-								kv.KVS[O.Key] = O.Value
-							}
-						} else if O.Operate == "Put" {
-							_, ok := kv.KVS[O.Key]
-							if ok {
-								DEBUG(dLog, "S%d AAAAAAA put key(%v) from %v to %v from(me)\n", kv.me, O.Key, kv.KVS[O.Key], O.Value)
-								kv.KVS[O.Key] = O.Value
-							} else {
-								DEBUG(dLog, "S%d AAAAAAA put key(%v) from nil to %v from(me)\n", kv.me, O.Key, O.Value)
-								kv.KVS[O.Key] = O.Value
-							}
+				O := m.Command.(Op)
+				DEBUG(dLog, "S%d TTT CommandValid(%v) applyindex(%v) CommandIndex(%v) %v key(%v) value(%v)\n", kv.me, m.CommandValid, kv.aplplyindex, m.CommandIndex, O.Operate, O.Key, O.Value)
+
+				if m.CommandValid && kv.aplplyindex+1 == m.CommandIndex {
+					kv.aplplyindex = m.CommandIndex
+					kv.Apl_cmd = m.Command.(Op)
+					DEBUG(dLeader, "S%d update CCM[%v] from %v to %v\n", kv.me, O.Cli_index, kv.CCM[O.Cli_index], O.Cmd_index)
+					kv.CCM[O.Cli_index] = O.Cmd_index
+					kv.cond.Broadcast()
+					if O.Operate == "Append" {
+						val, ok := kv.KVS[O.Key]
+						if ok {
+							DEBUG(dLog, "S%d BBBBBBB append Key(%v) from %v to %v from(me)\n", kv.me, O.Key, kv.KVS[O.Key], kv.KVS[O.Key]+O.Value)
+							kv.KVS[O.Key] = val + O.Value
+						} else {
+							DEBUG(dLog, "S%d BBBBBBB append key(%v) from nil to %v from(me)\n", kv.me, O.Key, O.Value)
+							kv.KVS[O.Key] = O.Value
 						}
-						// }
+					} else if O.Operate == "Put" {
+						_, ok := kv.KVS[O.Key]
+						if ok {
+							DEBUG(dLog, "S%d AAAAAAA put key(%v) from %v to %v from(me)\n", kv.me, O.Key, kv.KVS[O.Key], O.Value)
+							kv.KVS[O.Key] = O.Value
+						} else {
+							DEBUG(dLog, "S%d AAAAAAA put key(%v) from nil to %v from(me)\n", kv.me, O.Key, O.Value)
+							kv.KVS[O.Key] = O.Value
+						}
 					}
 				}
 				kv.mu.Unlock()
-			// }
+			}
+			
 		}
 	}()
+
+	// go func() {
+	// 	for {
+	// 		kv.mu.Lock()
+	// 		_, isLeader := kv.rf.GetState()
+	// 		kv.mu.Unlock()
+	// 		if !isLeader {
+	// 			kv.cond.Broadcast()
+	// 			kv.mu.Unlock()
+	// 		}
+	// 	}
+	// }()
 
 	// You may need initialization code here.
 
