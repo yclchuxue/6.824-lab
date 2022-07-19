@@ -113,6 +113,15 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		reply.Err = ErrWrongLeader
 		DEBUG(dLeader, "S%d <-- C%v Get key(%v) but not leader test%v\n", kv.me, args.CIndex, args.Key, args.Test)
 	} else {
+
+		OS := kv.rf.Find(index)
+		if OS == nil {
+			DEBUG(dLeader, "S%d do not have this log(%v)\n", kv.me, O)
+		}else{
+			P := OS.(Op)
+			DEBUG(dLeader, "S%d have this log(%v) in raft\n", kv.me, P)
+		}
+		
 		kv.mu.Lock()
 		lastindex, ok := kv.CSM[args.CIndex]
 		if !ok {
