@@ -2,7 +2,7 @@ package kvraft
 
 import (
 	"crypto/rand"
-	"fmt"
+	// "fmt"
 	"sync"
 	//"time"
 	"math/big"
@@ -35,7 +35,7 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck.mu = sync.Mutex{}
 	LOGinit()
 	ck.cli_index = nrand()
-	fmt.Println("have one client made num", ck.cli_index)
+	// fmt.Println("have one client made num", ck.cli_index)
 	ck.cmd_index = 0
 	ck.ice = false
 	// You'll have to add code here.
@@ -99,11 +99,6 @@ func (ck *Clerk) Get(key string) string {
 				}
 			} else if reply.Err == OK {
 				ck.ice = true
-				// if ck.ice {
-				// 	ti := time.Since(start).Milliseconds()
-				// 	fmt.Println("time = ", ti)
-				// 	ck.ice = false
-				// }
 				ck.leader = i
 				DEBUG(dClient, "C%d Get success key(%v) value(%v) r.index(%v) from(S%v)\n", ck.cli_index, args.Key, reply.Value, reply.Index, i)
 				ck.mu.Unlock()
@@ -178,16 +173,10 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		args.Test++
 		DEBUG(dClient, "C%d send to S%v %v Key(%v) value(%v) CIndex(%v) OIndex(%v) test%v\n", ck.cli_index, i, args.Op, args.Key, args.Value, args.CIndex, args.OIndex, args.Test)
 		reply := PutAppendReply{}
-		//fmt.Println("i = ", i)
-		// var start time.Time
-		// start = time.Now()
 		ok := ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
-		// ti := time.Since(start).Milliseconds()
-		// fmt.Println("time = ", ti)
 		DEBUG(dClient, "C%d ok(%v) ERR(%v) from S%v in test%v\n", ck.cli_index, ok, reply.Err, i, args.Test)
 		ck.mu.Lock()
 		if ok {
-			// send_try = 3
 			if reply.Err == ErrWrongLeader {
 				reply = PutAppendReply{}
 				if ck.ice {
@@ -200,11 +189,6 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 			} else if reply.Err == OK {
 				ck.leader = i
 				ck.ice = true
-				// if ck.ice {
-				// 	ti := time.Since(start).Milliseconds()
-				// 	fmt.Println("time = ", ti)
-				// 	ck.ice = false
-				// }
 				DEBUG(dClient, "C%d %v err(%v), success key(%v) value(%v) r.Index(%v) from(S%v)2\n", ck.cli_index, args.Op, reply.Err, key, args.Value, reply.Index, i)
 				ck.mu.Unlock()
 				break

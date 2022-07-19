@@ -13,7 +13,7 @@ import (
 )
 
 const Debug = false
-const TIMEOUT = 1000 * 1000
+const TIMEOUT = 1000 * 100
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
 	if Debug {
@@ -68,8 +68,8 @@ type KVServer struct {
 }
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
-	DEBUG(dLeader, "S%d <-- C%v Get key(%v) test%v\n", kv.me, args.CIndex, args.Key, args.Test)
 	kv.mu.Lock()
+	DEBUG(dLeader, "S%d <-- C%v Get key(%v) test%v\n", kv.me, args.CIndex, args.Key, args.Test)
 
 	in1, okk1 := kv.CDM[args.CIndex]
 	if okk1 && in1 == args.OIndex {
@@ -88,6 +88,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		kv.CDM[args.CIndex] = 0
 	}
 	kv.mu.Unlock()
+
 	var isLeader bool
 	var index int
 	O := Op{
@@ -97,10 +98,14 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		Operate:   "Get",
 		Key:       args.Key,
 	}
+	kv.mu.Lock()
 	in2, okk2 := kv.CSM[args.CIndex]
 	if !okk2 {
 		kv.CSM[args.CIndex] = 0
-	} else if in2 == args.OIndex {
+	}
+	kv.mu.Unlock()
+
+	if in2 == args.OIndex {
 		_, isLeader = kv.rf.GetState()
 		index = -args.Test
 	} else {
@@ -117,11 +122,11 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		OS := kv.rf.Find(index)
 		if OS == nil {
 			DEBUG(dLeader, "S%d do not have this log(%v)\n", kv.me, O)
-		}else{
+		} else {
 			P := OS.(Op)
 			DEBUG(dLeader, "S%d have this log(%v) in raft\n", kv.me, P)
 		}
-		
+
 		kv.mu.Lock()
 		lastindex, ok := kv.CSM[args.CIndex]
 		if !ok {
@@ -129,29 +134,31 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		}
 		kv.CSM[args.CIndex] = args.OIndex
 		kv.mu.Unlock()
+
 		DEBUG(dLeader, "S%d <-- C%v Get key(%v) wait %v\n", kv.me, args.CIndex, args.Key, args.Test)
 		for {
 			select {
 			case out := <-kv.get:
 				if index <= out.index && out.O == O {
-					DEBUG(dLeader, "S%d kvs(%v) index(%v) from(%v)\n", kv.me, kv.KVS, index, kv.me)
 					kv.mu.Lock()
+					DEBUG(dLeader, "S%d kvs(%v) index(%v) from(%v)\n", kv.me, kv.KVS, index, kv.me)
 					val, ok := kv.KVS[args.Key]
-					kv.mu.Unlock()
 					if ok {
 						DEBUG(dLeader, "S%d Get key(%v) value(%v) OK from(C%v)\n", kv.me, args.Key, val, args.CIndex)
 						reply.Err = OK
 						reply.Value = val
+						kv.mu.Unlock()
 						return
 					} else {
 						DEBUG(dLeader, "S%d Get key(%v) value(%v) this map do not have value map %v from(C%v)\n", kv.me, args.Key, val, kv.KVS, args.CIndex)
 						reply.Err = ErrNoKey
+						kv.mu.Unlock()
 						return
 					}
-					// }
 				}
 
 			case <-time.After(TIMEOUT * time.Microsecond):
+				kv.mu.Lock()
 				DEBUG(dLeader, "S%d is time out\n", kv.me)
 				reply.Err = TOUT
 				if _, isLeader := kv.rf.GetState(); !isLeader {
@@ -159,6 +166,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 					reply.Index = index
 					kv.CSM[args.CIndex] = lastindex
 				}
+				kv.mu.Unlock()
 				return
 
 			}
@@ -169,9 +177,8 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
-	DEBUG(dLeader, "S%d <-- C%v %v key(%v) value(%v) test%v\n", kv.me, args.CIndex, args.Op, args.Key, args.Value, args.Test)
 	kv.mu.Lock()
-
+	DEBUG(dLeader, "S%d <-- C%v %v key(%v) value(%v) test%v\n", kv.me, args.CIndex, args.Op, args.Key, args.Value, args.Test)
 	in1, okk1 := kv.CDM[args.CIndex]
 	if okk1 && in1 == args.OIndex {
 		reply.Err = OK //had done
@@ -194,10 +201,15 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		Key:       args.Key,
 		Value:     args.Value,
 	}
+
+	kv.mu.Lock()
 	in2, okk2 := kv.CSM[args.CIndex]
 	if !okk2 {
 		kv.CSM[args.CIndex] = 0
-	} else if in2 == args.OIndex {
+	}
+	kv.mu.Unlock()
+
+	if in2 == args.OIndex {
 		_, isLeader = kv.rf.GetState()
 		index = args.Test
 	} else {
@@ -212,7 +224,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		OS := kv.rf.Find(index)
 		if OS == nil {
 			DEBUG(dLeader, "S%d do not have this log(%v)\n", kv.me, O)
-		}else{
+		} else {
 			P := OS.(Op)
 			DEBUG(dLeader, "S%d have this log(%v) in raft\n", kv.me, P)
 		}
@@ -230,12 +242,13 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 			select {
 			case out := <-kv.putAdd:
 				if index <= out.index && out.O == O {
-					DEBUG(dLeader, "S%d %v index(%v) applyindex(%v)  this cmd_index(%v) key(%v) value(%v) from(C%v)\n", kv.me, kv.Apl_cmd.Operate, index, out.index, args.OIndex, args.Key, args.Value, args.CIndex)
+					DEBUG(dLeader, "S%d %v index(%v) applyindex(%v)  this cmd_index(%v) key(%v) value(%v) from(C%v)\n", kv.me, args.Op,index, out.index, args.OIndex, args.Key, args.Value, args.CIndex)
 					reply.Err = OK
 					return
 				}
 
 			case <-time.After(TIMEOUT * time.Microsecond):
+				kv.mu.Lock()
 				DEBUG(dLeader, "S%d time out\n", kv.me)
 				reply.Err = TOUT
 				if _, isLeader := kv.rf.GetState(); !isLeader {
@@ -243,6 +256,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 					reply.Index = index
 					kv.CSM[args.CIndex] = lastindex
 				}
+				kv.mu.Unlock()
 				return
 			}
 		}
@@ -312,71 +326,84 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 
 	go func() {
-		for m := range kv.applyCh {
-			if !kv.killed() {
-				kv.mu.Lock()
+		for {
+			select {
+			case m := <-kv.applyCh:
+				if !kv.killed() {
+					kv.mu.Lock()
 
-				O := m.Command.(Op)
-				DEBUG(dLog, "S%d TTT CommandValid(%v) applyindex(%v) CommandIndex(%v) %v key(%v) value(%v) CDM[C%v](%v) M(%v) from(%v)\n", kv.me, m.CommandValid, kv.aplplyindex, m.CommandIndex, O.Operate, O.Key, O.Value, O.Cli_index, kv.CDM[O.Cli_index], O.Cmd_index, O.Ser_index)
+					O := m.Command.(Op)
+					DEBUG(dLog, "S%d TTT CommandValid(%v) applyindex(%v) CommandIndex(%v) %v key(%v) value(%v) CDM[C%v](%v) M(%v) from(%v)\n", kv.me, m.CommandValid, kv.aplplyindex, m.CommandIndex, O.Operate, O.Key, O.Value, O.Cli_index, kv.CDM[O.Cli_index], O.Cmd_index, O.Ser_index)
 
-				if m.CommandValid && kv.aplplyindex+1 == m.CommandIndex {
-					if kv.CDM[O.Cli_index] < O.Cmd_index {
-						kv.aplplyindex = m.CommandIndex
-						kv.Apl_cmd = m.Command.(Op)
-						DEBUG(dLeader, "S%d update CDM[%v] from %v to %v\n", kv.me, O.Cli_index, kv.CDM[O.Cli_index], O.Cmd_index)
-						kv.CDM[O.Cli_index] = O.Cmd_index
-						if O.Operate == "Append" {
+					if m.CommandValid && kv.aplplyindex+1 == m.CommandIndex {
+						if O.Cli_index == -1 {
+							kv.aplplyindex = m.CommandIndex
+							DEBUG(dLog, "S%d fro TIMEOUT\n", kv.me)
+						}else if kv.CDM[O.Cli_index] < O.Cmd_index {
+							kv.aplplyindex = m.CommandIndex
 
-							select {
-							case kv.putAdd <- COMD{index: m.CommandIndex, O: O}:
-								DEBUG(dLog, "S%d write putAdd in(%v)\n", kv.me, m.CommandIndex)
-							default:
-								DEBUG(dLog, "S%d can not write putAdd in(%v)\n", kv.me, m.CommandIndex)
+							DEBUG(dLeader, "S%d update CDM[%v] from %v to %v\n", kv.me, O.Cli_index, kv.CDM[O.Cli_index], O.Cmd_index)
+							kv.CDM[O.Cli_index] = O.Cmd_index
+							if O.Operate == "Append" {
+
+								select {
+								case kv.putAdd <- COMD{index: m.CommandIndex, O: O}:
+									DEBUG(dLog, "S%d write putAdd in(%v)\n", kv.me, m.CommandIndex)
+								default:
+									DEBUG(dLog, "S%d can not write putAdd in(%v)\n", kv.me, m.CommandIndex)
+								}
+
+								val, ok := kv.KVS[O.Key]
+								if ok {
+									// DEBUG(dLog, "S%d BBBBBBB append Key(%v) from %v to %v from(me)\n", kv.me, O.Key, kv.KVS[O.Key], kv.KVS[O.Key]+O.Value)
+									DEBUG(dLog, "S%d BBBBBBB append Key(%v) from %v to value(%v) from(%v)\n", kv.me, O.Key, kv.KVS[O.Key], O.Value, O.Ser_index)
+									kv.KVS[O.Key] = val + O.Value
+								} else {
+									DEBUG(dLog, "S%d BBBBBBB append key(%v) from nil to %v from(%v)\n", kv.me, O.Key, O.Value, O.Ser_index)
+									kv.KVS[O.Key] = O.Value
+								}
+							} else if O.Operate == "Put" {
+
+								select {
+								case kv.putAdd <- COMD{index: m.CommandIndex, O: O}:
+									DEBUG(dLog, "S%d write putAdd in(%v)\n", kv.me, m.CommandIndex)
+								default:
+									DEBUG(dLog, "S%d can not write putAdd in(%v)\n", kv.me, m.CommandIndex)
+								}
+
+								_, ok := kv.KVS[O.Key]
+								if ok {
+									DEBUG(dLog, "S%d AAAAAAA put key(%v) from %v to %v from(%v)\n", kv.me, O.Key, kv.KVS[O.Key], O.Value, O.Ser_index)
+									kv.KVS[O.Key] = O.Value
+								} else {
+									DEBUG(dLog, "S%d AAAAAAA put key(%v) from nil to %v from(%v)\n", kv.me, O.Key, O.Value, O.Ser_index)
+									kv.KVS[O.Key] = O.Value
+								}
+							} else if O.Operate == "Get" {
+
+								select {
+								case kv.get <- COMD{index: m.CommandIndex, O: O}:
+									DEBUG(dLog, "S%d write get in(%v)\n", kv.me, m.CommandIndex)
+								default:
+									DEBUG(dLog, "S%d can not write get in(%v)\n", kv.me, m.CommandIndex)
+								}
 							}
-
-							val, ok := kv.KVS[O.Key]
-							if ok {
-								// DEBUG(dLog, "S%d BBBBBBB append Key(%v) from %v to %v from(me)\n", kv.me, O.Key, kv.KVS[O.Key], kv.KVS[O.Key]+O.Value)
-								DEBUG(dLog, "S%d BBBBBBB append Key(%v) from %v to value(%v) from(%v)\n", kv.me, O.Key, kv.KVS[O.Key], O.Value, O.Ser_index)
-								kv.KVS[O.Key] = val + O.Value
-							} else {
-								DEBUG(dLog, "S%d BBBBBBB append key(%v) from nil to %v from(%v)\n", kv.me, O.Key, O.Value, O.Ser_index)
-								kv.KVS[O.Key] = O.Value
-							}
-						} else if O.Operate == "Put" {
-
-							select {
-							case kv.putAdd <- COMD{index: m.CommandIndex, O: O}:
-								DEBUG(dLog, "S%d write putAdd in(%v)\n", kv.me, m.CommandIndex)
-							default:
-								DEBUG(dLog, "S%d can not write putAdd in(%v)\n", kv.me, m.CommandIndex)
-							}
-
-							_, ok := kv.KVS[O.Key]
-							if ok {
-								DEBUG(dLog, "S%d AAAAAAA put key(%v) from %v to %v from(%v)\n", kv.me, O.Key, kv.KVS[O.Key], O.Value, O.Ser_index)
-								kv.KVS[O.Key] = O.Value
-							} else {
-								DEBUG(dLog, "S%d AAAAAAA put key(%v) from nil to %v from(%v)\n", kv.me, O.Key, O.Value, O.Ser_index)
-								kv.KVS[O.Key] = O.Value
-							}
-						} else if O.Operate == "Get" {
-
-							select {
-							case kv.get <- COMD{index: m.CommandIndex, O: O}:
-								DEBUG(dLog, "S%d write get in(%v)\n", kv.me, m.CommandIndex)
-							default:
-								DEBUG(dLog, "S%d can not write get in(%v)\n", kv.me, m.CommandIndex)
-							}
+						} else if kv.CDM[O.Cli_index] == O.Cmd_index {
+							kv.aplplyindex = m.CommandIndex
+							DEBUG(dLog2, "S%d this cmd had done, the log had two \n", kv.me)
 						}
-					}else if kv.CDM[O.Cli_index] == O.Cmd_index{
-						kv.aplplyindex = m.CommandIndex
-						DEBUG(dLog2, "S%d this cmd had done, the log had two %v\n", kv.me, kv.Apl_cmd == O)
 					}
+					kv.mu.Unlock()
 				}
-				kv.mu.Unlock()
+			case <-time.After(TIMEOUT*time.Microsecond):
+				O := Op{
+					Ser_index: int64(kv.me),
+					Cli_index: -1,
+					Cmd_index: -1,
+					Operate:   "TIMEOUT",
+				}
+				kv.rf.Start(O)
 			}
-
 		}
 	}()
 
