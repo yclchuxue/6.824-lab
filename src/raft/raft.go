@@ -19,7 +19,6 @@ package raft
 
 import (
 	//	"bytes"
-	// "fmt"
 	"bytes"
 	"fmt"
 	"math/rand"
@@ -130,6 +129,13 @@ type Per struct {
 	VotedFor int
 }
 
+func (rf *Raft) RaftSize() (int, int) {
+	rf.mu.Lock()
+	Xsize := rf.X
+	rf.mu.Unlock()
+	return Xsize, rf.persister.RaftStateSize()
+}
+
 //
 // save Raft's persistent state to stable storage,
 // where it can later be retrieved after a crash and restart.
@@ -171,6 +177,7 @@ func (rf *Raft) readPersist(data []byte, snapshot []byte) {
 		DEBUG(dWarn, "S%d labgob fail\n", rf.me)
 	} else {
 		DEBUG(dLog, "S%d ??? Term = %d votefor(%d) log= (%v)\n", rf.me, Usr.Term, Usr.VotedFor, Usr.Log)
+		fmt.Println("S", rf.me, "??? log", Usr.Log)
 		rf.currentTerm = Usr.Term
 		rf.log = Usr.Log
 		rf.X = Usr.X
@@ -203,6 +210,7 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (2D).
 	rf.mu.Lock()
+	fmt.Println( "S", rf.me, "index", index, "rf.X", rf.X)
 	le := index - rf.X
 	rf.lastIndex = index
 	rf.lastTerm = rf.log[le].Logterm
@@ -614,11 +622,14 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 				Log:      command,
 				LogIndex: len(rf.log) + rf.X,
 			}
-			DEBUG(dLog, "S%d have log\n", rf.me)
 			rf.log = append(rf.log, com)
 			rf.matchIndex[rf.me]++
 			term = rf.currentTerm
 			index = com.LogIndex
+			DEBUG(dLog, "S%d have log \n", rf.me)
+			fmt.Println("S", rf.me, "have a log command", command)
+			// fmt.Println("S", rf.me, "the log", rf.log)
+
 			go rf.persist()
 			DEBUG(dLog, "S%d %v\n", rf.me, com)
 			rf.electionElapsed = 0
@@ -630,6 +641,19 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		rf.mu.Unlock()
 	}
 	return index, term, isLeader
+}
+
+func (rf *Raft) Find(in int) interface{} {
+	var logs []LogNode
+	rf.mu.Lock()
+	logs = append(logs, rf.log...)
+	rf.mu.Unlock()
+	for _, L := range logs {
+		if L.LogIndex == in {
+			return L.Log
+		}
+	}
+	return nil
 }
 
 func (rf *Raft) appendentries(term int) {
@@ -722,13 +746,13 @@ func (rf *Raft) appendentries(term int) {
 							}
 							
 						}
-
+						DEBUG(dLog, "S%d index(%v) matchindex(%v)\n", rf.me, index, rf.matchIndex)
 						for _, in := range rf.matchIndex {
-							if in == index {
+							if in >= index {
 								successnum++
 							}
 						}
-
+						DEBUG(dLog, "S%d successnum(%v) com-rf.X(%v) rf.CT(%v) t(%v)\n", rf.me, successnum, rf.commitIndex-rf.X, rf.currentTerm, t)
 						if successnum > le/2 && index > rf.commitIndex-rf.X && rf.currentTerm == t {
 							DEBUG(dLog, "S%d sum(%d) ban(%d)\n", rf.me, successnum, le/2)
 							DEBUG(dCommit, "S%d new commit(%d) and applied\n", rf.me, index)
@@ -1054,6 +1078,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 					rf.lastApplied++
 					DEBUG(dLog, "S%d comm(%d) last(%d)\n", rf.me, commit, rf.lastApplied)
 					rf.mu.Unlock()
+					fmt.Println("S", rf.me, "applied", node)
 					applyCh <- node
 				}
 
