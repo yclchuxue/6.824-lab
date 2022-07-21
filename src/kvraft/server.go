@@ -84,13 +84,20 @@ type KVServer struct {
 }
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
-	kv.mu.Lock()
-	DEBUG(dLeader, "S%d <-- C%v Get key(%v) test%v\n", kv.me, args.CIndex, args.Key, args.Test)
 
+	DEBUG(dLeader, "S%d <-- C%v Get key(%v) test%v\n", kv.me, args.CIndex, args.Key, args.Test)
+	_, isLeader := kv.rf.GetState()
+	if !isLeader {
+		reply.Err = ErrWrongLeader
+		return
+	}
+
+	kv.mu.Lock()
 	if kv.applyindex == 0 {
+		DEBUG(dLog, "S%d the snap not applied applyindex is %v\n", kv.me, kv.applyindex)
 		kv.mu.Unlock()
 		reply.Err = TOUT
-		time.Sleep(TIMEOUT*time.Microsecond)
+		time.Sleep(TIMEOUT * time.Microsecond)
 		return
 	}
 
@@ -112,7 +119,6 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	}
 	kv.mu.Unlock()
 
-	var isLeader bool
 	var index int
 	O := Op{
 		Ser_index: int64(kv.me),
@@ -201,13 +207,19 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
-	kv.mu.Lock()
-	DEBUG(dLeader, "S%d <-- C%v %v key(%v) value(%v) test%v\n", kv.me, args.CIndex, args.Op, args.Key, args.Value, args.Test)
+	DEBUG(dLeader, "S%d <-- C%v Get key(%v) test%v\n", kv.me, args.CIndex, args.Key, args.Test)
+	_, isLeader := kv.rf.GetState()
+	if !isLeader {
+		reply.Err = ErrWrongLeader
+		return
+	}
 
+	kv.mu.Lock()
 	if kv.applyindex == 0 {
+		DEBUG(dLog, "S%d the snap not applied applyindex is %v\n", kv.me, kv.applyindex)
 		kv.mu.Unlock()
 		reply.Err = TOUT
-		time.Sleep(TIMEOUT*time.Microsecond)
+		time.Sleep(TIMEOUT * time.Microsecond)
 		return
 	}
 
@@ -223,7 +235,6 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	}
 	kv.mu.Unlock()
 
-	var isLeader bool
 	var index int
 	O := Op{
 		Ser_index: int64(kv.me),
@@ -317,24 +328,9 @@ func (kv *KVServer) killed() bool {
 	return z == 1
 }
 
-func (kv *KVServer) SendToSnap() {
-	X, num := kv.rf.RaftSize()
-	if num > int(float64(kv.maxraftstate)*0.8) {
-		select {
-		case kv.snap <- SXNUM{X: X, num: num}:
-			DEBUG(dSnap, "S%d send num(%d) to compare\n", kv.me, num)
-		default:
-			DEBUG(dSnap, "S%d can not write to snap\n", kv.me)
-		}
-	} else {
-
-	}
-}
-
 func (kv *KVServer) SendSnapShot() {
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
-	kv.mu.Lock()
 	S := SnapShot{
 		Kvs:         kv.KVS,
 		Csm:         kv.CSM,
@@ -343,11 +339,27 @@ func (kv *KVServer) SendSnapShot() {
 	}
 	e.Encode(S)
 	DEBUG(dSnap, "S%d the size need to snap index%v\n", kv.me, S.Apliedindex)
-	kv.mu.Unlock()
 	data := w.Bytes()
 	kv.rf.Snapshot(S.Apliedindex, data)
 	X, num := kv.rf.RaftSize()
 	fmt.Println("S", kv.me, "num", num, "X", X)
+}
+
+var start time.Time
+
+func (kv *KVServer) CheckSnap(maxraftstate int){
+	kv.mu.Lock()
+	ti := time.Since(start).Milliseconds()
+	X, num := kv.rf.RaftSize()
+	DEBUG(dSnap, "S%d the num is (%v) applidindex(%v) X(%v) time is %v\n", kv.me, num, kv.applyindex, X, ti)
+	if num > int(float64(maxraftstate)*0.8) {
+		if kv.applyindex == 0 || kv.applyindex <= X {
+			kv.mu.Unlock()
+			return
+		}
+		kv.SendSnapShot()
+	}
+	kv.mu.Unlock()
 }
 
 //
@@ -378,8 +390,14 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.mu = sync.Mutex{}
 	kv.cond = *sync.NewCond(&kv.mu)
 	kv.applyindex = 0
+	DEBUG(dSnap, "S%d ????????? update applyindex to %v\n", kv.me, kv.applyindex)
 	kv.Leader = false
-
+	var NUMS int
+	if maxraftstate > 0 {
+		NUMS = maxraftstate / 80
+	}else{
+		NUMS = -1
+	}
 	LOGinit()
 	var command Op
 	// command.Cli_index = 561651651
@@ -402,35 +420,24 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	go func() {
 		if maxraftstate > 0 {
 			for {
-				select {
-				case Sxnum := <-kv.snap:
-					go func(Sxnum SXNUM) {
-						kv.mu.Lock()
-						DEBUG(dSnap, "S%d num(%v)\n", kv.me, Sxnum.num)
-						DEBUG(dSnap, "S%d applidindex(%v) X(%v)\n", kv.me, kv.applyindex, Sxnum.X)
-						if Sxnum.num > int(float64(maxraftstate)*0.8) {
-							
-							if kv.applyindex == 0 || kv.applyindex <= Sxnum.X {
-								kv.mu.Unlock()
-								return
-							}
-							
-							go kv.SendSnapShot()
-						}
-						kv.mu.Unlock()
-					}(Sxnum)
-				case <-time.After(TIMEOUT * time.Microsecond):
-					go kv.SendToSnap()
+				if !kv.killed() {
+					kv.CheckSnap(maxraftstate)
+					start = time.Now()
+					time.Sleep(TIMEOUT * time.Microsecond)
+				} else {
+					return
 				}
 			}
 		}
 	}()
 
 	go func() {
+		count := 0
 		for {
-			select {
-			case m := <-kv.applyCh:
-				if !kv.killed() {
+			if !kv.killed() {
+				select {
+				case m := <-kv.applyCh:
+
 					if m.CommandValid {
 						kv.mu.Lock()
 						O := m.Command.(Op)
@@ -438,12 +445,12 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 						if kv.applyindex+1 == m.CommandIndex {
 							if O.Cli_index == -1 {
+								DEBUG(dLog, "S%d for TIMEOUT update applyindex %v to %v\n", kv.me, kv.applyindex, m.CommandIndex)
 								kv.applyindex = m.CommandIndex
-								DEBUG(dLog, "S%d fro TIMEOUT\n", kv.me)
 							} else if kv.CDM[O.Cli_index] < O.Cmd_index {
+								DEBUG(dLeader, "S%d update CDM[%v] from %v to %v update applyindex %v to %v\n", kv.me, O.Cli_index, kv.CDM[O.Cli_index], O.Cmd_index, kv.applyindex, m.CommandIndex)
 								kv.applyindex = m.CommandIndex
 
-								DEBUG(dLeader, "S%d update CDM[%v] from %v to %v\n", kv.me, O.Cli_index, kv.CDM[O.Cli_index], O.Cmd_index)
 								kv.CDM[O.Cli_index] = O.Cmd_index
 								if O.Operate == "Append" {
 
@@ -490,14 +497,21 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 									}
 								}
 							} else if kv.CDM[O.Cli_index] == O.Cmd_index {
+								DEBUG(dLog2, "S%d this cmd had done, the log had two update applyindex %v to %v\n", kv.me, kv.applyindex, m.CommandIndex)
 								kv.applyindex = m.CommandIndex
-								DEBUG(dLog2, "S%d this cmd had done, the log had two \n", kv.me)
 							}
-						}else if kv.applyindex + 1 < m.CommandIndex{
+						} else if kv.applyindex+1 < m.CommandIndex {
 							DEBUG(dWarn, "S%d the applyindex + 1 (%v) < commandindex(%v)\n", kv.me, kv.applyindex, m.CommandIndex)
 							// kv.applyindex = m.CommandIndex
 						}
 						kv.mu.Unlock()
+						count++
+						if NUMS > 0 && count == NUMS {
+							count = 0
+							DEBUG(dSnap, "S%d the cmd had achieve %v\n", kv.me, NUMS)
+							kv.CheckSnap(maxraftstate)
+							// time.Sleep(time.Microsecond * 20)
+						}
 					} else { //read snapshot
 						r := bytes.NewBuffer(m.Snapshot)
 						d := labgob.NewDecoder(r)
@@ -515,17 +529,21 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 						}
 						kv.mu.Unlock()
 					}
+
+				case <-time.After(TIMEOUT * time.Microsecond):
+					O := Op{
+						Ser_index: int64(kv.me),
+						Cli_index: -1,
+						Cmd_index: -1,
+						Operate:   "TIMEOUT",
+					}
+					kv.rf.Start(O)
 				}
-			case <-time.After(TIMEOUT * time.Microsecond):
-				O := Op{
-					Ser_index: int64(kv.me),
-					Cli_index: -1,
-					Cmd_index: -1,
-					Operate:   "TIMEOUT",
-				}
-				kv.rf.Start(O)
+			} else {
+				return
 			}
 		}
+
 	}()
 
 	return kv
