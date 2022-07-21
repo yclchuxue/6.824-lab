@@ -25,3 +25,15 @@
     [-] 收到请求后start，随后变为follower，其他节点成为leader，此条日志被删除，该节点又成为leader后，出现do not have this cmd。
 
     [-] 节点恢复时少applied一条日志，当leader提交（applied）后节点被重新启动（其他节点未applied），依靠日志恢复时少会发一条。
+
+## 快照
+    使用快照可以提高kvserver的恢复效率
+
+### 基本设计
+    每隔一段时间检查一次raftstatesize，将raftstatesize通过管道Snap写入，读出后判断条件是否符合发送快照。
+
+### 节点恢复
+    当节点被killed时，节点中长期运行协程也需要被killed，否则当节点重启（恢复）后会影响到。
+
+### 快照抢不到锁
+    重启后恢复快照和日志，日志仍有较长，频繁写入管道applych，导致快照抢不到锁，raft的长度（不含日志）会逐渐变大，可能会超过最大限度8*max。这里对每apply固定条数cmd则检查一次是否应该发送快照，原来采用过定时睡眠，来让CheckSnap有时间抢锁，但效果不明显，抢锁仍会发生，不如线性执行CheckSnap，减少锁的竞争。
