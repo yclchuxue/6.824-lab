@@ -42,5 +42,5 @@ python3 ./dstest.py TestPersist12C \
                     TestFigure8Unreliable2C \
                     TestReliableChurn2C \
                     TestUnreliableChurn2C \
-                    -r -p10 -n100
+                    -r -p10 -n1000
                     

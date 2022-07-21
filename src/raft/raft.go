@@ -210,8 +210,12 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (2D).
 	rf.mu.Lock()
-	fmt.Println( "S", rf.me, "index", index, "rf.X", rf.X)
+	fmt.Println("S", rf.me, "index", index, "rf.X", rf.X)
 	le := index - rf.X
+	if le <= 0 {
+		rf.mu.Unlock()
+		return
+	}
 	rf.lastIndex = index
 	rf.lastTerm = rf.log[le].Logterm
 	if le < 0 {
@@ -493,7 +497,8 @@ func (rf *Raft) InstallSnapshot(args *SnapShotArgs, reply *SnapShotReply) {
 
 	rf.mu.Lock()
 	reply.Term = rf.currentTerm
-	if args.Term >= rf.currentTerm && args.LeaderId == rf.leaderId && args.LastIncludedIndex > rf.X{
+	if args.Term >= rf.currentTerm && args.LeaderId == rf.leaderId && args.LastIncludedIndex > rf.X {
+		DEBUG(dSnap, "S%d the len(log) is %v\n", rf.me, len(rf.log))
 		if rf.log[len(rf.log)-1].LogIndex < args.LastIncludedIndex || rf.X > args.LastIncludedIndex {
 			array := []LogNode{
 				{
@@ -680,7 +685,7 @@ func (rf *Raft) appendentries(term int) {
 				if rf.nextIndex[it]-1 > index {
 					fmt.Println("AAAAAAAAAAAAAAAAA", rf.nextIndex[it])
 				}
-				if rf.tindex != rf.X || index != len(rf.log)-1{
+				if rf.tindex != rf.X || index != len(rf.log)-1 {
 					rf.tindex = rf.X
 					DEBUG(dLeader, "S%d appendentries error to exit because tindex or loglen changed\n", rf.me)
 					rf.mu.Unlock()
@@ -709,7 +714,7 @@ func (rf *Raft) appendentries(term int) {
 
 				args.PrevLogIterm = rf.log[rf.nextIndex[it]-1].Logterm
 
-				if len(rf.log)-1 >= rf.nextIndex[it] {
+				if len(rf.log)-1 >= rf.nextIndex[it] && rf.log[rf.nextIndex[it]].LogIndex < commit + 1{
 					nums := rf.log[rf.log[rf.nextIndex[it]].LogIndex-rf.X : commit-rf.X+1]
 					args.Entries = append(args.Entries, nums...)
 				}
@@ -734,17 +739,23 @@ func (rf *Raft) appendentries(term int) {
 
 						rf.matchIndex[it] = index
 						if rf.tindex == rf.X {
-							DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success\n", rf.me, it, rf.nextIndex[it], commit - rf.X + 1)
-							rf.nextIndex[it] = commit - rf.X + 1 //index + 1
-						}else{
+							
+							if commit-rf.X+1 <= 0 {
+								DEBUG(dLog, "S%d update nextindex[%d](%d) to 1 success because com-x+1(%v)\n", rf.me, it, rf.nextIndex[it], commit-rf.X+1)
+								rf.nextIndex[it] = 1
+							} else {
+								DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success\n", rf.me, it, rf.nextIndex[it], commit-rf.X+1)
+								rf.nextIndex[it] = commit - rf.X + 1 //index + 1
+							}
+						} else {
 							if commit >= rf.X {
-								DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success?\n", rf.me, it, rf.nextIndex[it], commit - rf.X + 1)
+								DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success?\n", rf.me, it, rf.nextIndex[it], commit-rf.X+1)
 								rf.nextIndex[it] = commit - rf.X + 1
-							}else{
+							} else {
 								DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success 1\n", rf.me, it, rf.nextIndex[it], 1)
 								rf.nextIndex[it] = 1
 							}
-							
+
 						}
 						DEBUG(dLog, "S%d index(%v) matchindex(%v)\n", rf.me, index, rf.matchIndex)
 						for _, in := range rf.matchIndex {
@@ -779,8 +790,12 @@ func (rf *Raft) appendentries(term int) {
 									DEBUG(dLog2, "S%d send snapShot to %d\n", rf.me, it)
 									go rf.sendsnapshot(rf.currentTerm, it)
 								} else if reply.Termfirstindex-rf.X > 1 {
-									DEBUG(dLeader, "S%d update nextindex[%d](%d) to X(%d) > 1\n", rf.me, it, rf.nextIndex[it], reply.Termfirstindex - rf.X)
+									DEBUG(dLeader, "S%d update nextindex[%d](%d) to X(%d) > 1\n", rf.me, it, rf.nextIndex[it], reply.Termfirstindex-rf.X)
 									rf.nextIndex[it] = reply.Termfirstindex - rf.X
+									if rf.nextIndex[it] > len(rf.log) {
+										DEBUG(dLeader, "S%d update nextindex[%d](%d) to %v> 1\n", rf.me, it, rf.nextIndex[it], len(rf.log))
+										rf.nextIndex[it] = len(rf.log)
+									}
 								} else {
 									DEBUG(dLog, "S%d update nextindex[%d](%d) to %d <= 1\n", rf.me, it, rf.nextIndex[it], 1)
 									rf.nextIndex[it] = 1
@@ -814,7 +829,6 @@ func (rf *Raft) sendsnapshot(term, it int) {
 	args.Log = rf.log[0].Log
 	args.Snapshot = rf.snapshot
 	args.LeaderId = rf.me
-	DEBUG(dLog, "S%d sendsnap be %d's follower T(%d) lensnapshot(%d)\n", rf.me, -1, reply.Term, len(rf.snapshot))
 	rf.mu.Unlock()
 	ok := rf.sendInstallSnapshot(it, &args, &reply)
 
@@ -915,7 +929,7 @@ func (rf *Raft) requestvotes(term int) {
 									rf.matchIndex[i] = 1
 								}
 							}
-							
+
 							// go rf.Start(nil)
 
 							go rf.appendentries(rf.currentTerm)
@@ -1026,10 +1040,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.commitIndex = 0
 	rf.lastApplied = 0
 	rf.tindex = 0
-
-	go func() {
+	startindex := rf.X
+	go func(startindex int) {
 		rf.mu.Lock()
-		startindex := rf.X
+		
 		DEBUG(dLog2, "S%d i = 1 MMMMMMMMMMMMMMMM\n", rf.me)
 		rf.mu.Unlock()
 		i := 1
@@ -1037,6 +1051,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		for rf.killed() == false {
 
 			rf.mu.Lock()
+			fmt.Println("S", rf.me, "len(log) is", len(rf.log), "startindex is", startindex, "X is", rf.X)
 			if len(rf.log) > 0 && startindex < rf.X {
 				node := ApplyMsg{
 					CommandValid:  false,
@@ -1050,6 +1065,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 				rf.lastApplied = rf.lastIndex
 
 				rf.mu.Unlock()
+				fmt.Println("S", rf.me, "the snapshot send to applych lastindex", node.SnapshotIndex)
 				applyCh <- node
 			} else {
 				rf.mu.Unlock()
@@ -1087,7 +1103,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 			time.Sleep(time.Millisecond * 10)
 		}
-	}()
+	}(startindex)
 
 	// go func() {
 	// 	for {

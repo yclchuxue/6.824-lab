@@ -34,7 +34,7 @@ python3 ./dstest.py TestBasicAgree2B \
                     TestRejoin2B \
                     TestBackup2B \
                     TestCount2B \
-                    -r -p10 -n50
+                    -r -p10 -n500
                     #  -ooutput1.log
 
 # go test -run TestInitialElection2A >> test1.log

@@ -57,7 +57,7 @@ func LOGinit() {
 }
 
 func DEBUG(topic logTopic, format string, a ...interface{}) {
-  // if debug >= 1 {
+  if 3 >= 1 {
     mu.Lock()
     time := time.Since(debugStart).Microseconds()
     time = time /100
@@ -65,5 +65,5 @@ func DEBUG(topic logTopic, format string, a ...interface{}) {
     format = prefix + format
     fmt.Printf(format, a...)
     mu.Unlock()
-  // }
+  }
 }

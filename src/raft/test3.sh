@@ -16,4 +16,4 @@ TestSnapshotInstallUnreliable2D \
 TestSnapshotInstallCrash2D \
 TestSnapshotInstallUnCrash2D \
 TestSnapshotAllCrash2D \
-                    -r -p6 -n100
+                    -r -p6 -n1000
