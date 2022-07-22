@@ -151,6 +151,7 @@ func (rf *Raft) persist() {
 	rf.mu.Lock()
 	Usr.X = rf.X
 	Usr.Log = rf.log
+	DEBUG(dPersist, "S%d Persist the log[%v]\n", rf.me, rf.log)
 	SnapShot := rf.snapshot
 	Usr.Term = rf.currentTerm
 	Usr.VotedFor = rf.votedFor
@@ -183,6 +184,7 @@ func (rf *Raft) readPersist(data []byte, snapshot []byte) {
 		rf.X = Usr.X
 		rf.snapshot = snapshot
 		rf.lastIndex = rf.X
+		DEBUG(dPersist, "S%d len(rf.log) is %v\n", rf.me, len(rf.log))
 		rf.lastTerm = rf.log[0].Logterm
 		rf.commitIndex = rf.X
 		rf.lastApplied = rf.X
@@ -332,6 +334,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		if rf.votedFor == -1 || rf.votedFor == args.CandidateId { //任期相同且未投票或者候选者和上次相同
 			//if 日志至少和自己一样新
 			logi := len(rf.log) - 1
+			DEBUG(dLog, "S%d the len(log) is %v\n", rf.me, logi+1)
 			if args.LastLogIterm >= rf.log[logi].Logterm {
 				if args.LastLogIndex-rf.X >= logi ||
 					args.LastLogIterm > rf.log[logi].Logterm {
@@ -366,13 +369,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			reply.Term = args.Term
 		}
 	}
-	rf.mu.Unlock()
 	go rf.persist()
-
+	rf.mu.Unlock()
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
-	go rf.persist()
+	// go rf.persist()
 	rf.mu.Lock()
 	if len(args.Entries) != 0 {
 		DEBUG(dLeader, "S%d  app <- %d T(%d) cT(%d)\n", rf.me, args.LeaderId, args.Term, rf.currentTerm)
@@ -457,11 +459,16 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				}
 
 				reply.Termfirstindex = rf.log[i].LogIndex + 1 //reply.Logterm任期内的第一条日志
-				DEBUG(dLog, "S%d DDDDDDDDDDDDDDDDDDD\n", rf.me)
-				rf.log = rf.log[:args.PrevLogIndex-rf.X] //匹配失败，删除该日志条目及其后面的日志
+				DEBUG(dLog, "S%d DDDDDDDDDDDDDDDDDDD the len(log) is %v\n", rf.me, len(rf.log))
+				if args.PrevLogIndex-rf.X != 0{
+					rf.log = rf.log[:args.PrevLogIndex-rf.X] //匹配失败，删除该日志条目及其后面的日志
+				}else{
+					DEBUG(dSnap, "S%d the log behind the leader need snapshot\n", rf.me)
+				}
 				reply.Success = false
-				DEBUG(dLeader, "S%d AAA fail\n", rf.me)
+				DEBUG(dLeader, "S%d AAA fail len(log) is %v\n", rf.me, len(rf.log))
 			}
+			go rf.persist()
 		} else { //不匹配
 			if len(rf.log) < 1 {
 				reply.Termfirstindex = 0 //reply.Logterm任期内的第一条日志
@@ -477,7 +484,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 					i--
 					reply.Termfirstindex = rf.log[i].LogIndex + 1 //reply.Logterm任期内的第一条日志
 				}
-
 			}
 			reply.Success = false
 			DEBUG(dLeader, "S%d BBB fail logi(%d) pre(%d) TI(%d)\n", rf.me, len(rf.log)-1, args.PrevLogIndex-rf.X, reply.Termfirstindex)
@@ -541,13 +547,13 @@ func (rf *Raft) InstallSnapshot(args *SnapShotArgs, reply *SnapShotReply) {
 		// if rf.lastApplied < rf.lastIndex {
 		rf.lastApplied = rf.lastIndex
 		// }
+		go rf.persist()
 		DEBUG(dLog2, "S%d aegs.Term(%d) CT(%d)\n", rf.me, args.Term, rf.currentTerm)
 		DEBUG(dLog2, "S%d <- snapshot by(%d) index(%d) logindex(%d) len1(%d)AAAAAAAAAAAAAAAAAAAAAA lensnapshot(%d)\n", rf.me, args.LeaderId, args.LastIncludedIndex, rf.log[len(rf.log)-1].LogIndex, len(rf.log), len(args.Snapshot))
 	} else {
 		DEBUG(dLog2, "S%d <- snapshot but term(%d) < cT(%d) or leaderid(%d) != args.LeaderID(%d)\n", rf.me, args.Term, rf.currentTerm, rf.leaderId, args.LeaderId)
 	}
 	rf.mu.Unlock()
-	go rf.persist()
 }
 
 func (rf *Raft) sendInstallSnapshot(server int, args *SnapShotArgs, reply *SnapShotReply) bool {
@@ -947,12 +953,12 @@ func (rf *Raft) requestvotes(term int) {
 							rf.electionRandomTimeout = rand.Intn(200) + 300
 							DEBUG(dVote, "S%d vote T(%d) > cT(%d) be -1's follower vf(%d)\n", rf.me, term, rf.currentTerm, rf.votedFor)
 						}
+						go rf.persist()
 					}
 					rf.mu.Unlock()
 				} else {
 					DEBUG(dVote, "S%d vote -> %d fail\n", rf.me, it)
 				}
-				go rf.persist()
 
 				wg.Done()
 			}(it, term)
