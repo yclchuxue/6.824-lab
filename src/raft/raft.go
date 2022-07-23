@@ -151,13 +151,13 @@ func (rf *Raft) persist() {
 	rf.mu.Lock()
 	Usr.X = rf.X
 	Usr.Log = rf.log
-	DEBUG(dPersist, "S%d Persist the log[%v]\n", rf.me, rf.log)
 	SnapShot := rf.snapshot
 	Usr.Term = rf.currentTerm
 	Usr.VotedFor = rf.votedFor
 	e.Encode(Usr)
 	rf.mu.Unlock()
 	data := w.Bytes()
+	DEBUG(dPersist, "S%d Persist len(data) is %v the log[%v]\n", rf.me, len(data), Usr.Log)
 	go rf.persister.SaveStateAndSnapshot(data, SnapShot)
 }
 
@@ -177,18 +177,18 @@ func (rf *Raft) readPersist(data []byte, snapshot []byte) {
 	if d.Decode(&Usr) != nil {
 		DEBUG(dWarn, "S%d labgob fail\n", rf.me)
 	} else {
-		DEBUG(dLog, "S%d ??? Term = %d votefor(%d) log= (%v)\n", rf.me, Usr.Term, Usr.VotedFor, Usr.Log)
-		fmt.Println("S", rf.me, "??? log", Usr.Log)
+		DEBUG(dLog, "S%d ??? Term = %d votefor(%d) read len(data)%v) log= (%v)\n", rf.me, Usr.Term, Usr.VotedFor, len(data), Usr.Log)
+		// fmt.Println("S", rf.me, "??? log", Usr.Log)
 		rf.currentTerm = Usr.Term
 		rf.log = Usr.Log
 		rf.X = Usr.X
 		rf.snapshot = snapshot
 		rf.lastIndex = rf.X
-		DEBUG(dPersist, "S%d len(rf.log) is %v\n", rf.me, len(rf.log))
+		// DEBUG(dPersist, "S%d len(rf.log) is %v\n", rf.me, len(rf.log))
 		rf.lastTerm = rf.log[0].Logterm
 		rf.commitIndex = rf.X
 		rf.lastApplied = rf.X
-		DEBUG(dLog, "S%d 恢复log lastindex(%d) lastapplied(%d) commitindex(%d)\n", rf.me, rf.lastIndex, rf.lastApplied, rf.commitIndex)
+		// DEBUG(dLog, "S%d 恢复log lastindex(%d) lastapplied(%d) commitindex(%d)\n", rf.me, rf.lastIndex, rf.lastApplied, rf.commitIndex)
 		rf.votedFor = Usr.VotedFor
 		rf.matchIndex[rf.me] = len(rf.log) - 1
 	}
@@ -235,7 +235,14 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 		} else {
 			rf.nextIndex[i] = rf.nextIndex[i] - le
 		}
-		DEBUG(dLog, "S%d update nextindex[%d] to %d\n", rf.me, i, rf.nextIndex[i])
+		// DEBUG(dLog, "S%d update nextindex[%d] to %d\n", rf.me, i, rf.nextIndex[i])
+		DEBUG(dLog, "S%d the mathindex[%d] is %d\n", rf.me, i, rf.matchIndex[i])
+		if rf.matchIndex[i]-le < 0 {
+			rf.matchIndex[i] = 0
+		} else {
+			rf.matchIndex[i] = rf.matchIndex[i] - le
+		}
+		DEBUG(dLog, "S%d update mathindex[%d] to %d\n", rf.me, i, rf.matchIndex[i])
 	}
 	if rf.commitIndex < index {
 		DEBUG(dLeader, "S%d update commitindex(%d) to (%d)\n", rf.me, rf.commitIndex, index)
@@ -243,8 +250,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	}
 	rf.lastApplied = index
 
-	rf.matchIndex[rf.me] = rf.matchIndex[rf.me] - le
-	DEBUG(dLog, "S%d index(%d) logindex(%d) len(%d)AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n", rf.me, index, rf.log[len(rf.log)-1].LogIndex, len(rf.log))
+	// DEBUG(dLog, "S%d index(%d) logindex(%d) len(%d)AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n", rf.me, index, rf.log[len(rf.log)-1].LogIndex, len(rf.log))
 	rf.mu.Unlock()
 	go rf.persist()
 }
@@ -334,7 +340,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		if rf.votedFor == -1 || rf.votedFor == args.CandidateId { //任期相同且未投票或者候选者和上次相同
 			//if 日志至少和自己一样新
 			logi := len(rf.log) - 1
-			DEBUG(dLog, "S%d the len(log) is %v\n", rf.me, logi+1)
+			// DEBUG(dLog, "S%d the len(log) is %v\n", rf.me, logi+1)
 			if args.LastLogIterm >= rf.log[logi].Logterm {
 				if args.LastLogIndex-rf.X >= logi ||
 					args.LastLogIterm > rf.log[logi].Logterm {
@@ -394,7 +400,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 		rf.state = 0
 		rf.currentTerm = args.Term
-		DEBUG(dLog, "S%d YYYY\n", rf.me)
+		// DEBUG(dLog, "S%d YYYY\n", rf.me)
 		if rf.leaderId != args.LeaderId {
 			DEBUG(dLog, "S%d be follower\n", rf.me)
 		}
@@ -403,7 +409,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		logs := args.Entries
 
 		if len(rf.log)-1 >= args.PrevLogIndex-rf.X && args.PrevLogIndex-rf.X >= 0 {
-			DEBUG(dLeader, "S%d PreT(%d) LT(%d)\n", rf.me, args.PrevLogIterm, rf.log[args.PrevLogIndex-rf.X].Logterm)
+			// DEBUG(dLeader, "S%d PreT(%d) LT(%d)\n", rf.me, args.PrevLogIterm, rf.log[args.PrevLogIndex-rf.X].Logterm)
 			if args.PrevLogIterm == rf.log[args.PrevLogIndex-rf.X].Logterm {
 
 				index := args.PrevLogIndex + 1 - rf.X
@@ -411,12 +417,12 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				for i, val := range logs {
 
 					if len(rf.log)-1 >= index {
-						DEBUG(dLog, "S%d mat(%d) index(%d) len(%d)\n", rf.me, len(rf.log)-1, index, len(rf.log))
+						// DEBUG(dLog, "S%d mat(%d) index(%d) len(%d)\n", rf.me, len(rf.log)-1, index, len(rf.log))
 						if rf.log[index].Logterm == val.Logterm {
 							index++
 						} else {
 							rf.log = rf.log[:index]
-							DEBUG(dLog, "S%d CCCCCCCCCCCCCCCCC\n", rf.me)
+							// DEBUG(dLog, "S%d CCCCCCCCCCCCCCCCC\n", rf.me)
 							//rf.matchIndex[rf.me] = index - 1
 							rf.log = append(rf.log, logs[i:]...)
 							DEBUG(dLog, "S%d A success + log(%v)\n", rf.me, logs[i:])
@@ -452,17 +458,17 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				i := args.PrevLogIndex - rf.X
 				for rf.log[i].Logterm == reply.Logterm {
 					if i <= 1 {
-						DEBUG(dWarn, "S%d j = %d\n", rf.me, i)
+						// DEBUG(dWarn, "S%d j = %d\n", rf.me, i)
 						break
 					}
 					i--
 				}
 
 				reply.Termfirstindex = rf.log[i].LogIndex + 1 //reply.Logterm任期内的第一条日志
-				DEBUG(dLog, "S%d DDDDDDDDDDDDDDDDDDD the len(log) is %v\n", rf.me, len(rf.log))
-				if args.PrevLogIndex-rf.X != 0{
+				// DEBUG(dLog, "S%d DDDDDDDDDDDDDDDDDDD the len(log) is %v\n", rf.me, len(rf.log))
+				if args.PrevLogIndex-rf.X != 0 {
 					rf.log = rf.log[:args.PrevLogIndex-rf.X] //匹配失败，删除该日志条目及其后面的日志
-				}else{
+				} else {
 					DEBUG(dSnap, "S%d the log behind the leader need snapshot\n", rf.me)
 				}
 				reply.Success = false
@@ -477,7 +483,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				i := len(rf.log) - 1
 				for rf.log[i].Logterm == reply.Logterm {
 					if i <= 1 {
-						DEBUG(dWarn, "S%d i = %d\n", rf.me, i)
+						// DEBUG(dWarn, "S%d i = %d\n", rf.me, i)
 						reply.Termfirstindex = rf.log[i].LogIndex
 						break
 					}
@@ -504,7 +510,7 @@ func (rf *Raft) InstallSnapshot(args *SnapShotArgs, reply *SnapShotReply) {
 	rf.mu.Lock()
 	reply.Term = rf.currentTerm
 	if args.Term >= rf.currentTerm && args.LeaderId == rf.leaderId && args.LastIncludedIndex > rf.X {
-		DEBUG(dSnap, "S%d the len(log) is %v\n", rf.me, len(rf.log))
+		// DEBUG(dSnap, "S%d the len(log) is %v\n", rf.me, len(rf.log))
 		if rf.log[len(rf.log)-1].LogIndex < args.LastIncludedIndex || rf.X > args.LastIncludedIndex {
 			array := []LogNode{
 				{
@@ -533,7 +539,7 @@ func (rf *Raft) InstallSnapshot(args *SnapShotArgs, reply *SnapShotReply) {
 				} else {
 					rf.nextIndex[i] = rf.nextIndex[i] - le
 				}
-				DEBUG(dLog, "S%d update next[%d] to %d\n", rf.me, i, rf.nextIndex[i])
+				// DEBUG(dLog, "S%d update next[%d] to %d\n", rf.me, i, rf.nextIndex[i])
 			}
 			rf.matchIndex[rf.me] = rf.matchIndex[rf.me] - le
 		}
@@ -548,7 +554,7 @@ func (rf *Raft) InstallSnapshot(args *SnapShotArgs, reply *SnapShotReply) {
 		rf.lastApplied = rf.lastIndex
 		// }
 		go rf.persist()
-		DEBUG(dLog2, "S%d aegs.Term(%d) CT(%d)\n", rf.me, args.Term, rf.currentTerm)
+		// DEBUG(dLog2, "S%d aegs.Term(%d) CT(%d)\n", rf.me, args.Term, rf.currentTerm)
 		DEBUG(dLog2, "S%d <- snapshot by(%d) index(%d) logindex(%d) len1(%d)AAAAAAAAAAAAAAAAAAAAAA lensnapshot(%d)\n", rf.me, args.LeaderId, args.LastIncludedIndex, rf.log[len(rf.log)-1].LogIndex, len(rf.log), len(args.Snapshot))
 	} else {
 		DEBUG(dLog2, "S%d <- snapshot but term(%d) < cT(%d) or leaderid(%d) != args.LeaderID(%d)\n", rf.me, args.Term, rf.currentTerm, rf.leaderId, args.LeaderId)
@@ -637,12 +643,12 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 			rf.matchIndex[rf.me]++
 			term = rf.currentTerm
 			index = com.LogIndex
-			DEBUG(dLog, "S%d have log \n", rf.me)
-			fmt.Println("S", rf.me, "have a log command", command)
+			DEBUG(dLog, "S%d have log %v\n", rf.me, com)
+			// fmt.Println("S", rf.me, "have a log command", command)
 			// fmt.Println("S", rf.me, "the log", rf.log)
 
 			go rf.persist()
-			DEBUG(dLog, "S%d %v\n", rf.me, com)
+			// DEBUG(dLog, "S%d %v\n", rf.me, com)
 			rf.electionElapsed = 0
 			go rf.appendentries(rf.currentTerm)
 		}
@@ -713,14 +719,14 @@ func (rf *Raft) appendentries(term int) {
 					wg.Done()
 					return
 				}
-				DEBUG(dLeader, "S%d rf.nextindex[%d] = %d\n", rf.me, it, rf.nextIndex[it])
+				// DEBUG(dLeader, "S%d rf.nextindex[%d] = %d\n", rf.me, it, rf.nextIndex[it])
 				args.PrevLogIndex = rf.log[rf.nextIndex[it]-1].LogIndex
-				DEBUG(dLeader, "S%d index(%d)  Pre(%d) len(%d)\n", rf.me, index, args.PrevLogIndex, len(rf.log)-1)
+				// DEBUG(dLeader, "S%d index(%d)  Pre(%d) len(%d)\n", rf.me, index, args.PrevLogIndex, len(rf.log)-1)
 				DEBUG(dLeader, "S%d app -> %d next(%d) index(%d) neT(%d) cT(%d)\n", rf.me, it, rf.nextIndex[it], index, rf.log[args.PrevLogIndex-rf.X].Logterm, term)
 
 				args.PrevLogIterm = rf.log[rf.nextIndex[it]-1].Logterm
 
-				if len(rf.log)-1 >= rf.nextIndex[it] && rf.log[rf.nextIndex[it]].LogIndex < commit + 1{
+				if len(rf.log)-1 >= rf.nextIndex[it] && rf.log[rf.nextIndex[it]].LogIndex < commit+1 {
 					nums := rf.log[rf.log[rf.nextIndex[it]].LogIndex-rf.X : commit-rf.X+1]
 					args.Entries = append(args.Entries, nums...)
 				}
@@ -743,9 +749,9 @@ func (rf *Raft) appendentries(term int) {
 
 						//统计复制成功的个数，超过半数就提交（修改commitindex）
 
-						rf.matchIndex[it] = index
 						if rf.tindex == rf.X {
-							
+							DEBUG(dLog, "S%d mathindex[%v] from %v to %v\n", rf.me, it, rf.matchIndex[it], index)
+							rf.matchIndex[it] = index
 							if commit-rf.X+1 <= 0 {
 								DEBUG(dLog, "S%d update nextindex[%d](%d) to 1 success because com-x+1(%v)\n", rf.me, it, rf.nextIndex[it], commit-rf.X+1)
 								rf.nextIndex[it] = 1
@@ -757,11 +763,15 @@ func (rf *Raft) appendentries(term int) {
 							if commit >= rf.X {
 								DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success?\n", rf.me, it, rf.nextIndex[it], commit-rf.X+1)
 								rf.nextIndex[it] = commit - rf.X + 1
+								DEBUG(dLog, "S%d mathindex[%v] from %v to %v\n", rf.me, it, rf.matchIndex[it], commit-rf.X)
+								rf.matchIndex[it] = commit-rf.X
 							} else {
 								DEBUG(dLog, "S%d update nextindex[%d](%d) to %d success 1\n", rf.me, it, rf.nextIndex[it], 1)
 								rf.nextIndex[it] = 1
+								DEBUG(dLog, "S%d mathindex[%v] from %v to %v\n", rf.me, it, rf.matchIndex[it], 0)
+								rf.matchIndex[it] = 0
 							}
-
+							rf.tindex = rf.X
 						}
 						DEBUG(dLog, "S%d index(%v) matchindex(%v)\n", rf.me, index, rf.matchIndex)
 						for _, in := range rf.matchIndex {
@@ -932,7 +942,7 @@ func (rf *Raft) requestvotes(term int) {
 								DEBUG(dLog, "S%d update nextindex[%d](%d) to %d (len(log))\n", rf.me, it, rf.nextIndex[it], len(rf.log))
 								rf.nextIndex[i] = len(rf.log)
 								if i != rf.me {
-									rf.matchIndex[i] = 1
+									rf.matchIndex[i] = 0
 								}
 							}
 
@@ -1049,7 +1059,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	startindex := rf.X
 	go func(startindex int) {
 		rf.mu.Lock()
-		
+
 		DEBUG(dLog2, "S%d i = 1 MMMMMMMMMMMMMMMM\n", rf.me)
 		rf.mu.Unlock()
 		i := 1
@@ -1081,11 +1091,12 @@ func Make(peers []*labrpc.ClientEnd, me int,
 			var arry []LogNode
 			commit := rf.commitIndex - rf.X
 			applied := rf.lastApplied - rf.X
-			DEBUG(dCommit, "S%d commit(%d) applied(%d) lenlog(%d) rf.X(%d) in(%d)\n", rf.me, commit, applied, len(rf.log)-1, rf.X, i)
+			// DEBUG(dCommit, "S%d commit(%d) applied(%d) lenlog(%d) rf.X(%d) in(%d)\n", rf.me, commit, applied, len(rf.log)-1, rf.X, i)
 			if commit > applied && applied >= 0 && commit <= len(rf.log)-1 {
 				arry = rf.log[applied+1 : commit+1]
 			}
 			i++
+			rf.lastApplied = rf.commitIndex
 			rf.mu.Unlock()
 			if commit > applied {
 				for _, it := range arry {
@@ -1096,10 +1107,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 						Command:      it.Log,
 					}
 					DEBUG(dLog, "S%d lastapp lognode = %v\n", rf.me, node)
-					rf.mu.Lock()
-					rf.lastApplied++
-					DEBUG(dLog, "S%d comm(%d) last(%d)\n", rf.me, commit, rf.lastApplied)
-					rf.mu.Unlock()
+					// rf.mu.Lock()
+					// rf.lastApplied++
+					// DEBUG(dLog, "S%d comm(%d) last(%d)\n", rf.me, commit, rf.lastApplied)
+					// rf.mu.Unlock()
 					fmt.Println("S", rf.me, "applied", node)
 					applyCh <- node
 				}
