@@ -165,7 +165,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		kv.CSM[args.CIndex] = args.OIndex
 		kv.mu.Unlock()
 
-		DEBUG(dLeader, "S%d <-- C%v Get key(%v) wait %v\n", kv.me, args.CIndex, args.Key, args.Test)
+		DEBUG(dLeader, "S%d <-- C%v Get key(%v) wait index(%v) %v\n", kv.me, args.CIndex, args.Key, args.Test , index)
 		for {
 			select {
 			case out := <-kv.get:
@@ -207,7 +207,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
-	DEBUG(dLeader, "S%d <-- C%v Get key(%v) test%v\n", kv.me, args.CIndex, args.Key, args.Test)
+	DEBUG(dLeader, "S%d <-- C%v putappend key(%v) value(%v) test%v\n", kv.me, args.CIndex, args.Key, args.Value, args.Test)
 	_, isLeader := kv.rf.GetState()
 	if !isLeader {
 		reply.Err = ErrWrongLeader
@@ -345,14 +345,13 @@ func (kv *KVServer) SendSnapShot() {
 	fmt.Println("S", kv.me, "num", num, "X", X)
 }
 
-var start time.Time
 
-func (kv *KVServer) CheckSnap(maxraftstate int){
+func (kv *KVServer) CheckSnap(){
 	kv.mu.Lock()
-	ti := time.Since(start).Milliseconds()
+
 	X, num := kv.rf.RaftSize()
-	DEBUG(dSnap, "S%d the num is (%v) applidindex(%v) X(%v) time is %v\n", kv.me, num, kv.applyindex, X, ti)
-	if num > int(float64(maxraftstate)*0.8) {
+	DEBUG(dSnap, "S%d the num is (%v) applidindex(%v) X(%v)\n", kv.me, num, kv.applyindex, X)
+	if num > int(float64(kv.maxraftstate)*0.8) {
 		if kv.applyindex == 0 || kv.applyindex <= X {
 			kv.mu.Unlock()
 			return
@@ -421,8 +420,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 		if maxraftstate > 0 {
 			for {
 				if !kv.killed() {
-					kv.CheckSnap(maxraftstate)
-					start = time.Now()
+					kv.CheckSnap()
 					time.Sleep(TIMEOUT * time.Microsecond)
 				} else {
 					return
@@ -509,7 +507,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 						if NUMS > 0 && count == NUMS {
 							count = 0
 							DEBUG(dSnap, "S%d the cmd had achieve %v\n", kv.me, NUMS)
-							kv.CheckSnap(maxraftstate)
+							kv.CheckSnap()
 							// time.Sleep(time.Microsecond * 20)
 						}
 					} else { //read snapshot
@@ -524,7 +522,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 							kv.CDM = S.Cdm
 							kv.CSM = S.Csm
 							kv.KVS = S.Kvs
-							DEBUG(dSnap, "S%d recover by SnapShot update applyindex(%v) to %v\n", kv.me, kv.applyindex, S.Apliedindex)
+							DEBUG(dSnap, "S%d recover by SnapShot update applyindex(%v) to %v the kvs is %v\n", kv.me, kv.applyindex, S.Apliedindex, kv.KVS)
 							kv.applyindex = S.Apliedindex
 						}
 						kv.mu.Unlock()
