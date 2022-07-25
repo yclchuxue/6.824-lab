@@ -136,7 +136,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 
 	if in2 == args.OIndex {
 		_, isLeader = kv.rf.GetState()
-		index = -args.Test
+		index = args.Test
 	} else {
 		DEBUG(dLeader, "S%d start Get key(%v)\n", kv.me, args.Key)
 		index, _, isLeader = kv.rf.Start(O)

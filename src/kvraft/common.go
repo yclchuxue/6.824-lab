@@ -4,6 +4,7 @@ const (
 	OK             = "OK"
 	ErrNoKey       = "ErrNoKey"
 	ErrWrongLeader = "ErrWrongLeader"
+	TOUT 		   = "TimeOut"
 )
 
 type Err string
@@ -15,6 +16,7 @@ type PutAppendArgs struct {
 	Op    string // "Put" or "Append"
 	CIndex	int64
 	OIndex  int64
+	Test int
 	// You'll have to add definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
@@ -29,6 +31,7 @@ type GetArgs struct {
 	Key string
 	CIndex int64
 	OIndex int64
+	Test int
 	// You'll have to add definitions here.
 }
 

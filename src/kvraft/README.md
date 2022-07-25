@@ -37,3 +37,12 @@
 
 ### 快照抢不到锁
     重启后恢复快照和日志，日志仍有较长，频繁写入管道applych，导致快照抢不到锁，raft的长度（不含日志）会逐渐变大，可能会超过最大限度8*max。这里对每apply固定条数cmd则检查一次是否应该发送快照，原来采用过定时睡眠，来让CheckSnap有时间抢锁，但效果不明显，抢锁仍会发生，不如线性执行CheckSnap，减少锁的竞争。
+
+### 快照后的日志（raft bug）
+    在raft的实现中我们遍历mathindex来判断超过半数的index数，来更新commitindex，这里的mathindex使用的不是整体的logindex，而是小于len(log)，大于等于0的值，当接收快照后应该更新mathindex，之前未更新mathindex，导致并未被大多数提交的日志被提交。需要在每次接收日志后将mathindex修改。
+
+### 持久化不及时（raft bug）
+    在raft中我们采用以下方式来持久化 raftsate 和 snapshot ，但这种方式可能会持久化不及时，计划不使用协程来做持久化(不于采用)。
+
+### mathindex 更新问题
+    如果采用 0 <= mathindex <= len(rf.log) -1 ，mathindex 在Snapshot到来时会更新,但如果是在发生心跳前为更新，发生心跳后更新mathindex，但心跳RPC返回后会造成mathindex更改，不符合实际要求。最终将mathindex改为rf.log[x].logindex。
