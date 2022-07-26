@@ -12,6 +12,10 @@ import "math/big"
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// Your data here.
+
+	leader int
+	cli_index int64
+	cmd_index int64
 }
 
 func nrand() int64 {
@@ -24,22 +28,35 @@ func nrand() int64 {
 func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
+	ck.leader = 0
+	ck.cli_index = nrand()
+	ck.cmd_index = 0
+	LOGinit()
 	// Your code here.
 	return ck
 }
 
 func (ck *Clerk) Query(num int) Config {
 	args := &QueryArgs{}
+	ck.cmd_index++
 	// Your code here.
 	args.Num = num
+	args.CIndex = ck.cli_index
+	args.OIndex = ck.cmd_index
 	for {
+		i := ck.leader
 		// try each known server.
-		for _, srv := range ck.servers {
+		for ; i < len(ck.servers); {
 			var reply QueryReply
-			ok := srv.Call("ShardCtrler.Query", args, &reply)
+			ok := ck.servers[i].Call("ShardCtrler.Query", args, &reply)
 			if ok && reply.WrongLeader == false {
+				ck.leader = i
 				return reply.Config
 			}
+		}
+		i++
+		if i == len(ck.servers) {
+			i = 0
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -47,17 +64,25 @@ func (ck *Clerk) Query(num int) Config {
 
 func (ck *Clerk) Join(servers map[int][]string) {
 	args := &JoinArgs{}
+	ck.cmd_index++	
 	// Your code here.
 	args.Servers = servers
-
+	args.CIndex = ck.cli_index
+	args.OIndex = ck.cmd_index
 	for {
+		i := ck.leader
 		// try each known server.
-		for _, srv := range ck.servers {
+		for ; i < len(ck.servers); {
 			var reply JoinReply
-			ok := srv.Call("ShardCtrler.Join", args, &reply)
+			ok := ck.servers[i].Call("ShardCtrler.Join", args, &reply)
 			if ok && reply.WrongLeader == false {
+				ck.leader = i
 				return
 			}
+		}
+		i++
+		if i == len(ck.servers) {
+			i = 0
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -65,17 +90,25 @@ func (ck *Clerk) Join(servers map[int][]string) {
 
 func (ck *Clerk) Leave(gids []int) {
 	args := &LeaveArgs{}
+	ck.cmd_index++
 	// Your code here.
 	args.GIDs = gids
-
+	args.CIndex = ck.cli_index
+	args.OIndex = ck.cmd_index
 	for {
+		i := ck.leader
 		// try each known server.
-		for _, srv := range ck.servers {
+		for  ; i < len(ck.servers); {
 			var reply LeaveReply
-			ok := srv.Call("ShardCtrler.Leave", args, &reply)
+			ok := ck.servers[i].Call("ShardCtrler.Leave", args, &reply)
 			if ok && reply.WrongLeader == false {
+				ck.leader = i
 				return
 			}
+		}
+		i++
+		if i == len(ck.servers) {
+			i = 0
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -88,13 +121,19 @@ func (ck *Clerk) Move(shard int, gid int) {
 	args.GID = gid
 
 	for {
+		i := ck.leader
 		// try each known server.
-		for _, srv := range ck.servers {
+		for ; i < len(ck.servers); {
 			var reply MoveReply
-			ok := srv.Call("ShardCtrler.Move", args, &reply)
+			ok := ck.servers[i].Call("ShardCtrler.Move", args, &reply)
 			if ok && reply.WrongLeader == false {
+				ck.leader = i
 				return
 			}
+		}
+		i++
+		if i == len(ck.servers) {
+			i = 0
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
