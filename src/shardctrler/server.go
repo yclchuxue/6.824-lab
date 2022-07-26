@@ -1,6 +1,7 @@
 package shardctrler
 
 import (
+	"sort"
 	"sync"
 	"time"
 
@@ -9,7 +10,7 @@ import (
 	"6.824/raft"
 )
 
-const TIMEOUT = 1000 * 100
+const TIMEOUT = 1000 * 1000 
 
 type Op struct {
 	// Your data here.
@@ -51,6 +52,7 @@ type ShardCtrler struct {
 
 func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 	// Your code here.
+	reply.WrongLeader = false
 	_, isLeader := sc.rf.GetState()
 	if !isLeader {
 		reply.WrongLeader = true
@@ -58,7 +60,7 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 	}
 
 	sc.mu.Lock()
-	in1, okk1 := sc.CDM[args.OIndex]
+	in1, okk1 := sc.CDM[args.CIndex]
 	if okk1 && in1 == args.OIndex {
 		reply.Err = OK
 		DEBUG(dLog, "S%d had done Join servers = %v\n", sc.me, args.Servers)
@@ -112,11 +114,11 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 		sc.CSM[args.CIndex] = args.OIndex
 		sc.mu.Unlock()
 
-		DEBUG(dLeader, "S%d <-- C%v Join servers(%v) wait index(%v) %v\n", sc.me, args.CIndex, args.Servers, index)
+		DEBUG(dLeader, "S%d <-- C%v Join servers(%v) wait index(%v)\n", sc.me, args.CIndex, args.Servers, index)
 		for {
 			select {
 			case out := <-sc.join:
-				if index <= out.index { // && out.O == O
+				if index <= out.index  { // && out.O == O
 					sc.mu.Lock()
 					DEBUG(dLeader, "S%d index(%v) from(%v) index(%v) out.index(%v)\n", sc.me, index, sc.me, index, out.index)
 					reply.Err = OK
@@ -144,6 +146,7 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 
 func (sc *ShardCtrler) Leave(args *LeaveArgs, reply *LeaveReply) {
 	// Your code here.
+	reply.WrongLeader = false
 	_, isLeader := sc.rf.GetState()
 	if !isLeader {
 		reply.WrongLeader = true
@@ -151,7 +154,7 @@ func (sc *ShardCtrler) Leave(args *LeaveArgs, reply *LeaveReply) {
 	}
 
 	sc.mu.Lock()
-	in1, okk1 := sc.CDM[args.OIndex]
+	in1, okk1 := sc.CDM[args.CIndex]
 	if okk1 && in1 == args.OIndex {
 		reply.Err = OK
 		DEBUG(dLog, "S%d had done Leave GIDS = %v\n", sc.me, args.GIDs)
@@ -205,7 +208,7 @@ func (sc *ShardCtrler) Leave(args *LeaveArgs, reply *LeaveReply) {
 		sc.CSM[args.CIndex] = args.OIndex
 		sc.mu.Unlock()
 
-		DEBUG(dLeader, "S%d <-- C%v Leave GIDS(%v) wait index(%v) %v\n", sc.me, args.CIndex, args.GIDs, index)
+		DEBUG(dLeader, "S%d <-- C%v Leave GIDS(%v) wait index(%v)\n", sc.me, args.CIndex, args.GIDs, index)
 		for {
 			select {
 			case out := <-sc.leave:
@@ -236,6 +239,7 @@ func (sc *ShardCtrler) Leave(args *LeaveArgs, reply *LeaveReply) {
 
 func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 	// Your code here.
+	reply.WrongLeader = false
 	_, isLeader := sc.rf.GetState()
 	if !isLeader {
 		reply.WrongLeader = true
@@ -243,7 +247,7 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 	}
 
 	sc.mu.Lock()
-	in1, okk1 := sc.CDM[args.OIndex]
+	in1, okk1 := sc.CDM[args.CIndex]
 	if okk1 && in1 == args.OIndex {
 		reply.Err = OK
 		DEBUG(dLog, "S%d had done Move GID = %v\n", sc.me, args.GID)
@@ -262,6 +266,7 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 		Cmd_index: args.OIndex,
 		Operate:   "Move",
 		Gid:       args.GID,
+		Shard: 	   args.Shard,
 	}
 	sc.mu.Lock()
 	in2, okk2 := sc.CSM[args.CIndex]
@@ -283,10 +288,10 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 	} else {
 		OS := sc.rf.Find(index)
 		if OS == nil {
-			DEBUG(dLeader, "S%d do not have this log(%v)\n", sc.me, O)
+			DEBUG(dLeader, "S%d do not have this log(%v) index is %v\n", sc.me, O, index)
 		} else {
 			P := OS.(Op)
-			DEBUG(dLeader, "S%d have this log(%v) in raft\n", sc.me, P)
+			DEBUG(dLeader, "S%d have this log(%v) in raft index is %v\n", sc.me, P, index)
 		}
 
 		sc.mu.Lock()
@@ -297,7 +302,7 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 		sc.CSM[args.CIndex] = args.OIndex
 		sc.mu.Unlock()
 
-		DEBUG(dLeader, "S%d <-- C%v Move GID(%v) wait index(%v) %v\n", sc.me, args.CIndex, args.GID, index)
+		DEBUG(dLeader, "S%d <-- C%v Move GID(%v) wait index(%v)\n", sc.me, args.CIndex, args.GID, index)
 		for {
 			select {
 			case out := <-sc.move:
@@ -328,6 +333,7 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 
 func (sc *ShardCtrler) Query(args *QueryArgs, reply *QueryReply) {
 	// Your code here.
+	reply.WrongLeader = false
 	_, isLeader := sc.rf.GetState()
 	if !isLeader {
 		reply.WrongLeader = true
@@ -335,7 +341,8 @@ func (sc *ShardCtrler) Query(args *QueryArgs, reply *QueryReply) {
 	}
 
 	sc.mu.Lock()
-	in1, okk1 := sc.CDM[args.OIndex]
+	in1, okk1 := sc.CDM[args.CIndex]
+	DEBUG(dLeader, "S%d in1 is %v okk1 is %v\n", sc.me, in1, okk1)
 	if okk1 && in1 == args.OIndex {
 		reply.Err = OK
 		DEBUG(dLog, "S%d had done Query num = %v\n", sc.me, args.Num)
@@ -393,18 +400,20 @@ func (sc *ShardCtrler) Query(args *QueryArgs, reply *QueryReply) {
 		sc.CSM[args.CIndex] = args.OIndex
 		sc.mu.Unlock()
 
-		DEBUG(dLeader, "S%d <-- C%v Query num is %v wait index(%v) %v\n", sc.me, args.CIndex, args.Num, index)
+		DEBUG(dLeader, "S%d <-- C%v Query num is %v wait index(%v)\n", sc.me, args.CIndex, args.Num, index)
 		for {
 			select {
 			case out := <-sc.query:
-				if index <= out.index { // && out.O == O
+				if index <= out.index { // 
 					sc.mu.Lock()
-					DEBUG(dLeader, "S%d index(%v) from(%v) index(%v) out.index(%v)\n", sc.me, index, sc.me, index, out.index)
-					if args.Num >= 0 {
+					le := len(sc.configs)
+					DEBUG(dLeader, "S%d index(%v) from(%v) index(%v) out.index(%v) the num is %v le is %v\n", sc.me, index, sc.me, index, out.index, args.Num, le)
+					if args.Num >= 0 && args.Num <  le{
 						reply.Config = sc.configs[args.Num]
-					} else if args.Num == -1 {
-						reply.Config = sc.configs[len(sc.configs)-1]
+					} else {
+						reply.Config = sc.configs[le-1]
 					}
+					reply.Err = OK
 					sc.mu.Unlock()
 					return
 				}
@@ -492,48 +501,48 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister)
 							sc.CDM[O.Cli_index] = O.Cmd_index
 							if O.Operate == "Join" {
 
+								NewCongig := sc.JoinConfig(O.Servers)
+								sc.configs = append(sc.configs, NewCongig)
 								select {
 								case sc.join <- COMD{index: m.CommandIndex, O: O}:
-									DEBUG(dLog, "S%d write join in(%v)\n", sc.me, m.CommandIndex)
+									DEBUG(dLog, "S%d write join in(%v) the indexfoconfigs is %v the new Config is %v\n", sc.me, m.CommandIndex, len(sc.configs)-1, NewCongig)
 								default:
-									DEBUG(dLog, "S%d can not write join in(%v)\n", sc.me, m.CommandIndex)
+									DEBUG(dLog, "S%d can not write join in(%v) the Config is %v\n", sc.me, m.CommandIndex, NewCongig)
 								}
-								// le := len(sc.configs)
-								// sc.configs = append(sc.configs, Config{
-								// 	Num: le,
-								// })
-								// le_shard := len(sc.configs[le-1].Shards)
-								// le_group := len(sc.configs[le-1].Groups)
-								// sc.configs[le].Shards[le_shard] = 
 
-								NewCongig := sc.JoinConfig(O.Servers)
-								
 							} else if O.Operate == "Leave" {
+
+								NewCongig := sc.LeaveConfig(O.Gids)
+								sc.configs = append(sc.configs, NewCongig)
 
 								select {
 								case sc.leave <- COMD{index: m.CommandIndex, O: O}:
-									DEBUG(dLog, "S%d write putAdd in(%v)\n", sc.me, m.CommandIndex)
+									DEBUG(dLog, "S%d write leave in(%v) the indexfoconfigs is %v the new Config is %v\n", sc.me, m.CommandIndex, len(sc.configs)-1, NewCongig)
 								default:
-									DEBUG(dLog, "S%d can not write putAdd in(%v)\n", sc.me, m.CommandIndex)
+									DEBUG(dLog, "S%d can not write leave in(%v) the Config is %v\n", sc.me, m.CommandIndex, NewCongig)
 								}
 
-								
 							} else if O.Operate == "Query" {
 
 								select {
 								case sc.query <- COMD{index: m.CommandIndex, O: O}:
-									DEBUG(dLog, "S%d write get in(%v)\n", sc.me, m.CommandIndex)
+									DEBUG(dLog, "S%d write query in(%v) the num is %v config is %v\n", sc.me, m.CommandIndex, O.Num, sc.configs[len(sc.configs)-1])
 								default:
-									DEBUG(dLog, "S%d can not write get in(%v)\n", sc.me, m.CommandIndex)
+									DEBUG(dLog, "S%d can not write query in(%v) config is %v\n", sc.me, m.CommandIndex, sc.configs[len(sc.configs)-1])
 								}
 
 							} else if O.Operate == "Move" {
+
+								NewCongig := sc.MoveConfig(O.Shard, O.Gid)
+								sc.configs = append(sc.configs, NewCongig)
+
 								select {
 								case sc.move <- COMD{index: m.CommandIndex, O: O}:
-									DEBUG(dLog, "S%d write get in(%v)\n", sc.me, m.CommandIndex)
+									DEBUG(dLog, "S%d write move in(%v) the indexfoconfigs is %v the new Config is %v\n\n", sc.me, m.CommandIndex, len(sc.configs)-1, NewCongig)
 								default:
-									DEBUG(dLog, "S%d can not write get in(%v)\n", sc.me, m.CommandIndex)
+									DEBUG(dLog, "S%d can not write move in(%v) the new Config is %v\n", sc.me, m.CommandIndex, NewCongig)
 								}
+
 							}
 						} else if sc.CDM[O.Cli_index] == O.Cmd_index {
 							DEBUG(dLog2, "S%d this cmd had done, the log had two update applyindex %v to %v\n", sc.me, sc.applyindex, m.CommandIndex)
@@ -564,20 +573,208 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister)
 }
 
 func (sc *ShardCtrler) JoinConfig(servers map[int][]string) Config {
+
 	len_configs := len(sc.configs)
 	newNUm := sc.configs[len_configs-1].Num + 1
+	lastGroups := sc.configs[len_configs-1].Groups
+	lastShards := sc.configs[len_configs-1].Shards
+	newGroups := make(map[int][]string)
 
+	for index, its := range lastGroups {
+		newGroups[index] = its
+	}
 
+	for index, its := range servers {
+		newGroups[index] = its
+	}
+
+	// if len(newGroups) == 0 {
+	// 	return {
+
+	// 	}
+	// }
+	GroupsNumMap := make(map[int]int)
+
+	for it := range newGroups {
+		GroupsNumMap[it] = 0
+	}
+
+	for _, it := range lastShards {
+		if it != 0 {
+			GroupsNumMap[it]++
+		}
+	}
+
+	if len(GroupsNumMap) == 0 {
+		return Config{
+			Num:    newNUm,
+			Shards: [NShards]int{},
+			Groups: newGroups,
+		}
+	}
+
+	return Config{
+		Num:    newNUm,
+		Shards: sc.getbalance(GroupsNumMap, lastShards),
+		Groups: newGroups,
+	}
 }
 
-func (sc *ShardCtrler) MoveConfig(){
+func (sc *ShardCtrler) LeaveConfig(gids []int) Config {
 
+	len_configs := len(sc.configs)
+	newNUm := sc.configs[len_configs-1].Num + 1
+	lastGroups := sc.configs[len_configs-1].Groups
+	lastShards := sc.configs[len_configs-1].Shards
+	newGroups := make(map[int][]string)
+
+	for index, its := range lastGroups {
+		ice := true
+		for _, it := range gids {
+			if it == index {
+				ice = false
+			}
+		}
+		if ice {
+			newGroups[index] = its
+		}
+	}
+
+	GroupsNumMap := make(map[int]int)
+
+	for it := range newGroups {
+		GroupsNumMap[it] = 0
+	}
+
+	for i, it := range lastShards {
+		ice := true
+		for _, index := range gids {
+			if it == index {
+				lastShards[i] = 0
+				ice = false
+			}
+		}
+		if ice && it != 0 {
+			GroupsNumMap[it]++
+		}
+	}
+	if len(GroupsNumMap) == 0 {
+		return Config{
+			Num:    newNUm,
+			Shards: [NShards]int{},
+			Groups: newGroups,
+		}
+	}
+
+	return Config{
+		Num:    newNUm,
+		Shards: sc.getbalance(GroupsNumMap, lastShards),
+		Groups: newGroups,
+	}
 }
 
-func (sc *ShardCtrler) LeaveConfig(){
+func (sc *ShardCtrler) MoveConfig(shard int, gid int) Config {
 
+	len_configs := len(sc.configs)
+	newNUm := sc.configs[len_configs-1].Num + 1
+	lastGroups := sc.configs[len_configs-1].Groups
+	lastShards := sc.configs[len_configs-1].Shards
+	newGroups := make(map[int][]string)
+
+	for index, its := range lastGroups {
+		newGroups[index] = its
+	}
+
+	GroupsNumMap := make(map[int]int)
+
+	for it := range newGroups {
+		GroupsNumMap[it] = 0
+	}
+	DEBUG(dLeader, "S%d move the shard(%v) to gid(%v)\n", sc.me, shard, gid)
+	for i, it := range lastShards {
+		if it != 0 {
+			if shard == i {
+				lastShards[i] = gid
+				GroupsNumMap[gid]++
+			} else {
+				GroupsNumMap[it]++
+			}
+		}
+	}
+
+	if len(GroupsNumMap) == 0 {
+		return Config{
+			Num:    newNUm,
+			Shards: [NShards]int{},
+			Groups: newGroups,
+		}
+	}
+
+	return Config{
+		Num:    newNUm,
+		Shards: lastShards,
+		Groups: newGroups,
+	}
 }
 
-func (sc *ShardCtrler) QueryConfig(){
+func (sc *ShardCtrler) getbalance(GroupsNumMap map[int]int, lastShards [NShards]int) [NShards]int {
 
+	length := len(GroupsNumMap)
+	DEBUG(dLeader, "S%d the GroupsNumMap is %v\n", sc.me, GroupsNumMap)
+	var nodes []int
+	for k, _ := range GroupsNumMap {
+		nodes = append(nodes, k)
+	}
+
+	sort.Ints(nodes)
+
+	average := NShards / length
+	endnum := NShards % length
+
+	DEBUG(dLog2, "S%d average is %v endnum is %v NShards is %v length is %v\n", sc.me, average, endnum, NShards, length)
+
+	for it := length - 1; it >= 0; it-- {
+
+		num := average
+
+		DEBUG(dLeader, "S%d GoupsNumMap[%v](%v) num is %v\n", sc.me, nodes[it], GroupsNumMap[nodes[it]], num)
+		if GroupsNumMap[nodes[it]] > num {
+			changenum := GroupsNumMap[nodes[it]] - num
+
+			if changenum > 0 && endnum > 0 {
+				changenum--
+				endnum--
+			}
+
+			GroupsNumMap[nodes[it]] = average
+			for index := range lastShards {
+				if changenum == 0 {
+					break
+				}
+				DEBUG(dLeader, "S%d lastShard[%v] is %v chang is %v\n", sc.me, index, lastShards[index], changenum)
+				if lastShards[index] == nodes[it] {
+					lastShards[index] = 0
+					changenum--
+				}
+			}
+		}
+	}
+
+	for it := 0; it < len(GroupsNumMap); it++ {
+		if GroupsNumMap[nodes[it]] < average {
+			changenum := average - GroupsNumMap[nodes[it]]
+			GroupsNumMap[nodes[it]] = average
+			for index := range lastShards {
+				if lastShards[index] == 0 {
+					lastShards[index] = nodes[it]
+					changenum--
+				}
+				if changenum == 0 {
+					break
+				}
+			}
+		}
+	}
+
+	return lastShards
 }
