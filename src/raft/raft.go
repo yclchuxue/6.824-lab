@@ -20,7 +20,7 @@ package raft
 import (
 	//	"bytes"
 	"bytes"
-	"fmt"
+	// "fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -178,7 +178,7 @@ func (rf *Raft) readPersist(data []byte, snapshot []byte) {
 		DEBUG(dWarn, "S%d labgob fail\n", rf.me)
 	} else {
 		DEBUG(dLog, "S%d ??? Term = %d votefor(%d) read len(data)%v) log= (%v)\n", rf.me, Usr.Term, Usr.VotedFor, len(data), Usr.Log)
-		// fmt.Println("S", rf.me, "??? log", Usr.Log)
+		// // fmt.Println("S", rf.me, "??? log", Usr.Log)
 		rf.currentTerm = Usr.Term
 		rf.log = Usr.Log
 		rf.X = Usr.X
@@ -212,7 +212,7 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (2D).
 	rf.mu.Lock()
-	fmt.Println("S", rf.me, "index", index, "rf.X", rf.X)
+	// fmt.Println("S", rf.me, "index", index, "rf.X", rf.X)
 	le := index - rf.X
 	if le <= 0 {
 		rf.mu.Unlock()
@@ -221,12 +221,12 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	rf.lastIndex = index
 	rf.lastTerm = rf.log[le].Logterm
 	if le < 0 {
-		fmt.Println("ERROR in snapshot in leader for le")
+		// fmt.Println("ERROR in snapshot in leader for le")
 	}
 	rf.snapshot = snapshot
 	rf.log = rf.log[le:]
 	if len(rf.log) <= 0 {
-		fmt.Println("ERROR in snapshot in leader for log")
+		// fmt.Println("ERROR in snapshot in leader for log")
 	}
 	rf.X = index
 	for i := range rf.peers {
@@ -521,7 +521,7 @@ func (rf *Raft) InstallSnapshot(args *SnapShotArgs, reply *SnapShotReply) {
 			}
 			rf.log = array
 			if len(rf.log) <= 0 {
-				fmt.Println("ERROR in snapshot in follower log < snap")
+				// fmt.Println("ERROR in snapshot in follower log < snap")
 			}
 			rf.X = args.LastIncludedIndex
 			rf.matchIndex[rf.me] = rf.X
@@ -529,7 +529,7 @@ func (rf *Raft) InstallSnapshot(args *SnapShotArgs, reply *SnapShotReply) {
 			le := args.LastIncludedIndex - rf.X
 			rf.log = rf.log[le:]
 			if len(rf.log) <= 0 {
-				fmt.Println("ERROR in snapshot in follower log > snap")
+				// fmt.Println("ERROR in snapshot in follower log > snap")
 			}
 			rf.X = args.LastIncludedIndex
 			for i := range rf.peers {
@@ -644,8 +644,8 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 			term = rf.currentTerm
 			index = com.LogIndex
 			DEBUG(dLog, "S%d have log %v\n", rf.me, com)
-			// fmt.Println("S", rf.me, "have a log command", command)
-			// fmt.Println("S", rf.me, "the log", rf.log)
+			// // fmt.Println("S", rf.me, "have a log command", command)
+			// // fmt.Println("S", rf.me, "the log", rf.log)
 
 			go rf.persist()
 			// DEBUG(dLog, "S%d %v\n", rf.me, com)
@@ -695,7 +695,7 @@ func (rf *Raft) appendentries(term int) {
 				args.LeaderId = rf.me
 				rf.mu.Lock()
 				if rf.nextIndex[it]-1 > index {
-					fmt.Println("AAAAAAAAAAAAAAAAA", rf.nextIndex[it])
+					// fmt.Println("AAAAAAAAAAAAAAAAA", rf.nextIndex[it])
 				}
 				if rf.tindex != rf.X || index != len(rf.log)-1 {
 					rf.tindex = rf.X
@@ -711,7 +711,7 @@ func (rf *Raft) appendentries(term int) {
 						wg.Done()
 						return
 					}
-					// fmt.Println("BBBBBBBBBBBBBBBBB")
+					// // fmt.Println("BBBBBBBBBBBBBBBBB")
 				}
 				if rf.currentTerm != term || rf.state != 2 {
 					DEBUG(dLeader, "S%d appendentries error to exit because term changed or not leader CT(%d) T(%d) Status(%d)\n", rf.me, rf.currentTerm, term, rf.state)
@@ -1063,7 +1063,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		for rf.killed() == false {
 
 			rf.mu.Lock()
-			fmt.Println("S", rf.me, "len(log) is", len(rf.log), "startindex is", startindex, "X is", rf.X)
+			// fmt.Println("S", rf.me, "len(log) is", len(rf.log), "startindex is", startindex, "X is", rf.X)
 			if len(rf.log) > 0 && startindex < rf.X {
 				node := ApplyMsg{
 					CommandValid:  false,
@@ -1077,7 +1077,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 				rf.lastApplied = rf.lastIndex
 
 				rf.mu.Unlock()
-				fmt.Println("S", rf.me, "the snapshot send to applych lastindex", node.SnapshotIndex)
+				// fmt.Println("S", rf.me, "the snapshot send to applych lastindex", node.SnapshotIndex)
 				applyCh <- node
 			} else {
 				rf.mu.Unlock()
@@ -1113,7 +1113,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 					rf.lastApplied++
 					DEBUG(dLog, "S%d comm(%d) last(%d)\n", rf.me, commit, rf.lastApplied)
 					rf.mu.Unlock()
-					fmt.Println("S", rf.me, "applied", node)
+					// fmt.Println("S", rf.me, "applied", node)
 					applyCh <- node
 				}
 				go rf.persist()
@@ -1123,58 +1123,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		}
 	}(startindex)
 
-	// go func() {
-	// 	for rf.killed() == false {
-	// 		rf.mu.Lock()
-	// 		var arry []LogNode
-	// 		commit := rf.commitIndex - rf.X
-	// 		applied := rf.lastApplied - rf.X
-	// 		SnapChange := rf.X
-	// 		DEBUG(dCommit, "S%d commit(%d) applied(%d) lenlog(%d) rf.X(%d)\n", rf.me, commit, applied, len(rf.log)-1, rf.X)
-	// 		if commit > applied && applied >= 0 && commit <= len(rf.log)-1 {
-	// 			arry = rf.log[applied+1 : commit+1]
-	// 		}
-	// 		// rf.lastApplied = rf.commitIndex
-	// 		rf.mu.Unlock()
-	// 		if commit > applied {
-	// 			for _, it := range arry {
-
-	// 				node := ApplyMsg{
-	// 					CommandValid: true,
-	// 					CommandIndex: it.LogIndex,
-	// 					Command:      it.Log,
-	// 				}
-	// 				DEBUG(dLog, "S%d lastapp lognode = %v\n", rf.me, node)
-	// 				rf.mu.Lock()
-
-	// 				if rf.X != SnapChange {
-	// 					DEBUG(dLog, "S%d the snapshot change , break for\n", rf.me)
-	// 					break
-	// 				}
-
-	// 				rf.lastApplied++
-	// 				DEBUG(dLog, "S%d comm(%d) last(%d)\n", rf.me, commit, rf.lastApplied)
-	// 				rf.mu.Unlock()
-	// 				fmt.Println("S", rf.me, "applied", node)
-	// 				applyCh <- node
-	// 			}
-	// 			go rf.persist()
-	// 		}
-	// 		time.Sleep(time.Millisecond * 20)
-	// 	}
-	// }()
-	// go func() {
-	// 	for {
-	// 		rf.mu.Lock()
-
-	// 		if rf.commitIndex < rf.log[len(rf.log)-1].LogIndex {
-	// 			rf.electionElapsed = 0
-	// 			go rf.appendentries(rf.currentTerm)
-	// 		}
-	// 		rf.mu.Unlock()
-	// 		time.Sleep(time.Microsecond * 10)
-	// 	}
-	// }()
 
 	LOGinit()
 	//atomic.StoreInt32(&rf.dead, 0)
