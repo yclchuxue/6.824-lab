@@ -40,6 +40,9 @@ type Clerk struct {
 	config   shardctrler.Config
 	make_end func(string) *labrpc.ClientEnd
 	// You will have to modify this struct.
+	leader    int
+	cli_index int64
+	cmd_index int64
 }
 
 //
@@ -56,6 +59,12 @@ func MakeClerk(ctrlers []*labrpc.ClientEnd, make_end func(string) *labrpc.Client
 	ck.sm = shardctrler.MakeClerk(ctrlers)
 	ck.make_end = make_end
 	// You'll have to add code here.
+
+	ck.cli_index = nrand()
+	ck.cmd_index = 0
+	ck.leader = 0
+	LOGinit()
+
 	return ck
 }
 
@@ -66,23 +75,49 @@ func MakeClerk(ctrlers []*labrpc.ClientEnd, make_end func(string) *labrpc.Client
 // You will have to modify this function.
 //
 func (ck *Clerk) Get(key string) string {
+	ck.cmd_index++
 	args := GetArgs{}
 	args.Key = key
-
+	args.CIndex = ck.cli_index
+	args.OIndex = ck.cmd_index
+	try_num := 3
 	for {
 		shard := key2shard(key)
 		gid := ck.config.Shards[shard]
 		if servers, ok := ck.config.Groups[gid]; ok {
 			// try each server for the shard.
-			for si := 0; si < len(servers); si++ {
+			for si := ck.leader; si < len(servers); {
 				srv := ck.make_end(servers[si])
 				var reply GetReply
+				DEBUG(dClient, "C%d send to S%v %v key(%v) the cmd_index(%v)\n", ck.cli_index, si, args.Key, ck.cmd_index)
 				ok := srv.Call("ShardKV.Get", &args, &reply)
-				if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
-					return reply.Value
+
+				if ok {
+					try_num = 3
 				}
-				if ok && (reply.Err == ErrWrongGroup) {
+
+				if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
+					DEBUG(dClient, "C%d success Get key(%v) value(%v) the cmd_index(%v)\n", ck.cli_index, args.Key, reply.Value, ck.cmd_index)
+					return reply.Value
+				}else if ok && (reply.Err == ErrWrongGroup) {
+					DEBUG(dClient, "C%d the Group ERROR\n", ck.cli_index)
 					break
+				}else if ok && reply.Err == ErrWrongLeader {
+					DEBUG(dClient, "C%d the S%v is not leader\n", ck.cli_index, si)
+					si++
+					if si == len(servers) {
+						si = 0
+					}
+				}else if !ok || reply.Err == ErrTimeOut{
+					DEBUG(dClient, "C%d the TIMEOUT\n", ck.cli_index)
+					if try_num > 0{
+						try_num--
+					}else{
+						si++
+						if si == len(servers) {
+							si = 0
+						}
+					}
 				}
 				// ... not ok, or ErrWrongLeader
 			}
@@ -100,25 +135,52 @@ func (ck *Clerk) Get(key string) string {
 // You will have to modify this function.
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
+	ck.cmd_index++
 	args := PutAppendArgs{}
 	args.Key = key
 	args.Value = value
 	args.Op = op
+	args.CIndex = ck.cli_index
+	args.OIndex = ck.cmd_index
 
+	try_num := 3
 
 	for {
 		shard := key2shard(key)
 		gid := ck.config.Shards[shard]
 		if servers, ok := ck.config.Groups[gid]; ok {
-			for si := 0; si < len(servers); si++ {
+			for si := ck.leader; si < len(servers); {
 				srv := ck.make_end(servers[si])
 				var reply PutAppendReply
+				DEBUG(dClient, "C%d send to S%v %v key(%v) value(%v) the cmd_index(%v)\n", ck.cli_index, si, args.Key, args.Value, ck.cmd_index)
 				ok := srv.Call("ShardKV.PutAppend", &args, &reply)
-				if ok && reply.Err == OK {
-					return
+
+				if ok {
+					try_num = 3
 				}
-				if ok && reply.Err == ErrWrongGroup {
+
+				if ok && reply.Err == OK {
+					DEBUG(dClient, "C%d success the cmd_index(%v)\n", ck.cli_index, ck.cmd_index)
+					return
+				}else if ok && reply.Err == ErrWrongGroup {
+					DEBUG(dClient, "C%d the Group ERROR\n", ck.cli_index)
 					break
+				}else if ok && reply.Err == ErrWrongLeader {
+					DEBUG(dClient, "C%d the S%v is not leader\n", ck.cli_index, si)
+					si++
+					if si == len(servers) {
+						si = 0
+					}
+				}else if !ok || reply.Err == ErrTimeOut{
+					DEBUG(dClient, "C%d the TIMEOUT\n", ck.cli_index)
+					if try_num > 0{
+						try_num--
+					}else{
+						si++
+						if si == len(servers) {
+							si = 0
+						}
+					}
 				}
 				// ... not ok, or ErrWrongLeader
 			}
