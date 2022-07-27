@@ -1,0 +1,289 @@
+Test: static shards ...
+000000 CLNT C4087650962301924976 send to 0 Join server is map[100:[server-100-0 server-100-1 server-100-2]]
+000002 CLNT C4087650962301924976 fail WrongLeader(true) ERR()
+001007 CLNT C4087650962301924976 send to 1 Join server is map[100:[server-100-0 server-100-1 server-100-2]]
+001013 CLNT C4087650962301924976 fail WrongLeader(true) ERR()
+002018 CLNT C4087650962301924976 send to 2 Join server is map[100:[server-100-0 server-100-1 server-100-2]]
+002024 CLNT C4087650962301924976 fail WrongLeader(true) ERR()
+003027 CLNT C4087650962301924976 send to 0 Join server is map[100:[server-100-0 server-100-1 server-100-2]]
+003032 CLNT C4087650962301924976 fail WrongLeader(true) ERR()
+004032 CLNT C4087650962301924976 send to 1 Join server is map[100:[server-100-0 server-100-1 server-100-2]]
+004034 LEAD S1 have this log({1 4087650962301924976 1 Join 0 map[100:[server-100-0 server-100-1 server-100-2]] [] 0 0}) in raft
+004034 LEAD S1 <-- C4087650962301924976 Join servers(map[100:[server-100-0 server-100-1 server-100-2]]) wait index(1)
+004103 LOG1 S1 TTT CommandValid(true) applyindex(0) CommandIndex(1) Join CDM[C4087650962301924976](0) M(1) from(1)
+004103 LEAD S1 update CDM[4087650962301924976] from 0 to 1 update applyindex 0 to 1
+004103 LEAD S1 the GroupsNumMap is map[100:0]
+004103 LOG2 S1 average is 10 endnum is 0 NShards is 10 length is 1
+004103 LEAD S1 GoupsNumMap[100](0) num is 10
+004104 LOG1 S1 write join in(1) the indexfoconfigs is 1 the new Config is {1 [100 100 100 100 100 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2]]}
+004104 LEAD S1 index(1) from(1) index(1) out.index(1)
+004104 CLNT C4087650962301924976 success
+004104 CLNT C4087650962301924976 send to 1 Join server is map[101:[server-101-0 server-101-1 server-101-2]]
+004105 LEAD S1 have this log({1 4087650962301924976 2 Join 0 map[101:[server-101-0 server-101-1 server-101-2]] [] 0 0}) in raft
+004106 LEAD S1 <-- C4087650962301924976 Join servers(map[101:[server-101-0 server-101-1 server-101-2]]) wait index(2)
+004310 LOG1 S2 TTT CommandValid(true) applyindex(0) CommandIndex(1) Join CDM[C4087650962301924976](0) M(1) from(1)
+004311 LEAD S2 update CDM[4087650962301924976] from 0 to 1 update applyindex 0 to 1
+004311 LEAD S2 the GroupsNumMap is map[100:0]
+004312 LOG2 S2 average is 10 endnum is 0 NShards is 10 length is 1
+004312 LEAD S2 GoupsNumMap[100](0) num is 10
+004312 LOG1 S0 TTT CommandValid(true) applyindex(0) CommandIndex(1) Join CDM[C4087650962301924976](0) M(1) from(1)
+004312 LEAD S0 update CDM[4087650962301924976] from 0 to 1 update applyindex 0 to 1
+004312 LEAD S0 the GroupsNumMap is map[100:0]
+004313 LOG2 S0 average is 10 endnum is 0 NShards is 10 length is 1
+004313 LEAD S0 GoupsNumMap[100](0) num is 10
+004313 LOG1 S1 TTT CommandValid(true) applyindex(1) CommandIndex(2) Join CDM[C4087650962301924976](1) M(2) from(1)
+004313 LEAD S1 update CDM[4087650962301924976] from 1 to 2 update applyindex 1 to 2
+004313 LEAD S1 the GroupsNumMap is map[100:10 101:0]
+004313 LOG2 S1 average is 5 endnum is 0 NShards is 10 length is 2
+004313 LEAD S1 GoupsNumMap[101](0) num is 5
+004313 LEAD S1 GoupsNumMap[100](10) num is 5
+004313 LEAD S1 lastShard[0] is 100 chang is 5
+004313 LEAD S1 lastShard[1] is 100 chang is 4
+004314 LEAD S1 lastShard[2] is 100 chang is 3
+004314 LEAD S1 lastShard[3] is 100 chang is 2
+004314 LEAD S1 lastShard[4] is 100 chang is 1
+004314 LOG1 S1 write join in(2) the indexfoconfigs is 2 the new Config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+004314 LEAD S1 index(2) from(1) index(2) out.index(2)
+004314 LOG1 S2 can not write join in(1) the Config is {1 [100 100 100 100 100 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2]]}
+004314 LOG1 S0 can not write join in(1) the Config is {1 [100 100 100 100 100 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2]]}
+004315 CLNT C4087650962301924976 success
+005317 CLNT C1109013412357836431 send to 0 Query num is -1
+005324 LOG1 S0 TTT CommandValid(true) applyindex(1) CommandIndex(2) Join CDM[C4087650962301924976](1) M(2) from(1)
+005325 LEAD S0 update CDM[4087650962301924976] from 1 to 2 update applyindex 1 to 2
+005326 LOG1 S2 TTT CommandValid(true) applyindex(1) CommandIndex(2) Join CDM[C4087650962301924976](1) M(2) from(1)
+005326 LEAD S2 update CDM[4087650962301924976] from 1 to 2 update applyindex 1 to 2
+005327 CLNT C1109013412357836431 fail WrongLeader(true) ERR()
+005327 LEAD S2 the GroupsNumMap is map[100:10 101:0]
+005328 LOG2 S2 average is 5 endnum is 0 NShards is 10 length is 2
+005328 LEAD S2 GoupsNumMap[101](0) num is 5
+005328 LEAD S2 GoupsNumMap[100](10) num is 5
+005328 LEAD S2 lastShard[0] is 100 chang is 5
+005328 LEAD S2 lastShard[1] is 100 chang is 4
+005329 LEAD S2 lastShard[2] is 100 chang is 3
+005329 LEAD S2 lastShard[3] is 100 chang is 2
+005329 LEAD S2 lastShard[4] is 100 chang is 1
+005329 LEAD S0 the GroupsNumMap is map[100:10 101:0]
+005330 LOG2 S0 average is 5 endnum is 0 NShards is 10 length is 2
+005330 LEAD S0 GoupsNumMap[101](0) num is 5
+005330 LOG1 S2 can not write join in(2) the Config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+005331 LEAD S0 GoupsNumMap[100](10) num is 5
+005331 LEAD S0 lastShard[0] is 100 chang is 5
+005331 LEAD S0 lastShard[1] is 100 chang is 4
+005332 LEAD S0 lastShard[2] is 100 chang is 3
+005332 LEAD S0 lastShard[3] is 100 chang is 2
+005332 LEAD S0 lastShard[4] is 100 chang is 1
+005332 LOG1 S0 can not write join in(2) the Config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+006333 CLNT C1109013412357836431 send to 1 Query num is -1
+006337 LEAD S1 in1 is 0 okk1 is false
+006337 LEAD S1 have this log({1 1109013412357836431 1 Query -1 map[] [] 0 0}) in raft
+006338 LEAD S1 <-- C1109013412357836431 Query num is -1 wait index(3)
+006548 LOG1 S1 TTT CommandValid(true) applyindex(2) CommandIndex(3) Query CDM[C1109013412357836431](0) M(1) from(1)
+006548 LEAD S1 update CDM[1109013412357836431] from 0 to 1 update applyindex 2 to 3
+006549 LOG1 S1 write query in(3) the num is -1 config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+006549 LEAD S1 index(3) from(1) index(3) out.index(3) the num is -1 le is 3
+006552 CLNT C1109013412357836431 success Config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]} from S1
+007585 LOG1 S0 TTT CommandValid(true) applyindex(2) CommandIndex(3) Query CDM[C1109013412357836431](0) M(1) from(1)
+007586 LEAD S0 update CDM[1109013412357836431] from 0 to 1 update applyindex 2 to 3
+007586 LOG1 S0 can not write query in(3) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+007587 LOG1 S2 TTT CommandValid(true) applyindex(2) CommandIndex(3) Query CDM[C1109013412357836431](0) M(1) from(1)
+007587 LEAD S2 update CDM[1109013412357836431] from 0 to 1 update applyindex 2 to 3
+007587 LOG1 S2 can not write query in(3) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+000983 CLNT C4480764096975071265 send to 0 Query num is -1
+000985 CLNT C3667453197655532403 send to 0 Query num is -1
+000988 CLNT C1604464909934796703 send to 0 Query num is -1
+000989 CLNT C3187899011492659113 send to 0 Query num is -1
+000995 CLNT C3187899011492659113 fail WrongLeader(true) ERR()
+000996 CLNT C1604464909934796703 fail WrongLeader(true) ERR()
+000998 CLNT C1933055419499338056 send to 0 Query num is -1
+001000 CLNT C2198015486603155514 send to 0 Query num is -1
+001002 CLNT C2170379832028540044 send to 0 Query num is -1
+001006 CLNT C4480764096975071265 fail WrongLeader(true) ERR()
+001007 CLNT C809059293648548106 send to 0 Query num is -1
+001010 CLNT C2170379832028540044 fail WrongLeader(true) ERR()
+001014 CLNT C3667453197655532403 fail WrongLeader(true) ERR()
+001014 CLNT C994648952438941823 send to 0 Query num is -1
+001017 CLNT C2198015486603155514 fail WrongLeader(true) ERR()
+001018 CLNT C809059293648548106 fail WrongLeader(true) ERR()
+001019 CLNT C4600102349249201287 send to 0 Query num is -1
+001022 CLNT C994648952438941823 fail WrongLeader(true) ERR()
+001024 CLNT C1933055419499338056 fail WrongLeader(true) ERR()
+001026 CLNT C4600102349249201287 fail WrongLeader(true) ERR()
+002003 CLNT C3187899011492659113 send to 1 Query num is -1
+002005 CLNT C1604464909934796703 send to 1 Query num is -1
+002008 LEAD S1 in1 is 0 okk1 is false
+002009 CLNT C4480764096975071265 send to 1 Query num is -1
+002009 LEAD S1 in1 is 0 okk1 is false
+002010 LEAD S1 have this log({1 3187899011492659113 1 Query -1 map[] [] 0 0}) in raft
+002011 LEAD S1 <-- C3187899011492659113 Query num is -1 wait index(4)
+002011 CLNT C2170379832028540044 send to 1 Query num is -1
+002013 LEAD S1 have this log({1 1604464909934796703 1 Query -1 map[] [] 0 0}) in raft
+002013 LEAD S1 <-- C1604464909934796703 Query num is -1 wait index(5)
+002014 LEAD S1 in1 is 0 okk1 is false
+002014 LEAD S1 in1 is 0 okk1 is false
+002015 LEAD S1 have this log({1 4480764096975071265 1 Query -1 map[] [] 0 0}) in raft
+002016 LEAD S1 <-- C4480764096975071265 Query num is -1 wait index(7)
+002016 LEAD S1 have this log({1 2170379832028540044 1 Query -1 map[] [] 0 0}) in raft
+002016 LEAD S1 <-- C2170379832028540044 Query num is -1 wait index(6)
+002018 CLNT C3667453197655532403 send to 1 Query num is -1
+002020 CLNT C809059293648548106 send to 1 Query num is -1
+002021 CLNT C2198015486603155514 send to 1 Query num is -1
+002023 CLNT C994648952438941823 send to 1 Query num is -1
+002025 CLNT C1933055419499338056 send to 1 Query num is -1
+002027 CLNT C4600102349249201287 send to 1 Query num is -1
+002030 LEAD S1 in1 is 0 okk1 is false
+002030 LEAD S1 have this log({1 4600102349249201287 1 Query -1 map[] [] 0 0}) in raft
+002031 LEAD S1 <-- C4600102349249201287 Query num is -1 wait index(8)
+002032 LEAD S1 in1 is 0 okk1 is false
+002033 LEAD S1 have this log({1 2198015486603155514 1 Query -1 map[] [] 0 0}) in raft
+002033 LEAD S1 <-- C2198015486603155514 Query num is -1 wait index(9)
+002035 LEAD S1 in1 is 0 okk1 is false
+002036 LEAD S1 have this log({1 1933055419499338056 1 Query -1 map[] [] 0 0}) in raft
+002036 LEAD S1 <-- C1933055419499338056 Query num is -1 wait index(10)
+002038 LEAD S1 in1 is 0 okk1 is false
+002039 LEAD S1 have this log({1 994648952438941823 1 Query -1 map[] [] 0 0}) in raft
+002039 LEAD S1 <-- C994648952438941823 Query num is -1 wait index(11)
+002042 LOG1 S1 TTT CommandValid(true) applyindex(3) CommandIndex(4) Query CDM[C3187899011492659113](0) M(1) from(1)
+002043 LEAD S1 update CDM[3187899011492659113] from 0 to 1 update applyindex 3 to 4
+002043 LOG1 S1 write query in(4) the num is -1 config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002044 LOG1 S1 TTT CommandValid(true) applyindex(4) CommandIndex(5) Query CDM[C1604464909934796703](0) M(1) from(1)
+002044 LEAD S1 update CDM[1604464909934796703] from 0 to 1 update applyindex 4 to 5
+002044 LOG1 S1 write query in(5) the num is -1 config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002045 LEAD S1 in1 is 0 okk1 is false
+002045 LEAD S1 index(5) from(1) index(5) out.index(5) the num is -1 le is 3
+002048 CLNT C1604464909934796703 success Config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]} from S1
+002050 LEAD S1 in1 is 0 okk1 is false
+002051 LEAD S1 index(4) from(1) index(4) out.index(4) the num is -1 le is 3
+002054 CLNT C3187899011492659113 success Config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]} from S1
+002057 LOG1 S1 TTT CommandValid(true) applyindex(5) CommandIndex(6) Query CDM[C2170379832028540044](0) M(1) from(1)
+002058 LEAD S1 update CDM[2170379832028540044] from 0 to 1 update applyindex 5 to 6
+002058 LOG1 S1 write query in(6) the num is -1 config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002059 LEAD S1 have this log({1 809059293648548106 1 Query -1 map[] [] 0 0}) in raft
+002059 LEAD S1 <-- C809059293648548106 Query num is -1 wait index(12)
+002059 LEAD S1 have this log({1 3667453197655532403 1 Query -1 map[] [] 0 0}) in raft
+002059 LEAD S1 <-- C3667453197655532403 Query num is -1 wait index(13)
+002252 LOG1 S2 TTT CommandValid(true) applyindex(3) CommandIndex(4) Query CDM[C3187899011492659113](0) M(1) from(1)
+002252 LEAD S2 update CDM[3187899011492659113] from 0 to 1 update applyindex 3 to 4
+002252 LOG1 S2 can not write query in(4) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002253 LOG1 S2 TTT CommandValid(true) applyindex(4) CommandIndex(5) Query CDM[C1604464909934796703](0) M(1) from(1)
+002253 LEAD S2 update CDM[1604464909934796703] from 0 to 1 update applyindex 4 to 5
+002253 LOG1 S2 can not write query in(5) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002253 LOG1 S2 TTT CommandValid(true) applyindex(5) CommandIndex(6) Query CDM[C2170379832028540044](0) M(1) from(1)
+002254 LEAD S2 update CDM[2170379832028540044] from 0 to 1 update applyindex 5 to 6
+002254 LOG1 S2 can not write query in(6) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002254 LOG1 S2 TTT CommandValid(true) applyindex(6) CommandIndex(7) Query CDM[C4480764096975071265](0) M(1) from(1)
+002254 LEAD S2 update CDM[4480764096975071265] from 0 to 1 update applyindex 6 to 7
+002254 LOG1 S2 can not write query in(7) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002254 LOG1 S2 TTT CommandValid(true) applyindex(7) CommandIndex(8) Query CDM[C4600102349249201287](0) M(1) from(1)
+002254 LEAD S2 update CDM[4600102349249201287] from 0 to 1 update applyindex 7 to 8
+002255 LOG1 S2 can not write query in(8) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002255 LOG1 S2 TTT CommandValid(true) applyindex(8) CommandIndex(9) Query CDM[C2198015486603155514](0) M(1) from(1)
+002255 LEAD S2 update CDM[2198015486603155514] from 0 to 1 update applyindex 8 to 9
+002255 LOG1 S2 can not write query in(9) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002255 LOG1 S2 TTT CommandValid(true) applyindex(9) CommandIndex(10) Query CDM[C1933055419499338056](0) M(1) from(1)
+002255 LEAD S2 update CDM[1933055419499338056] from 0 to 1 update applyindex 9 to 10
+002256 LOG1 S1 TTT CommandValid(true) applyindex(6) CommandIndex(7) Query CDM[C4480764096975071265](0) M(1) from(1)
+002256 LEAD S1 update CDM[4480764096975071265] from 0 to 1 update applyindex 6 to 7
+002257 LOG1 S0 TTT CommandValid(true) applyindex(3) CommandIndex(4) Query CDM[C3187899011492659113](0) M(1) from(1)
+002257 LEAD S0 update CDM[3187899011492659113] from 0 to 1 update applyindex 3 to 4
+002257 LOG1 S0 can not write query in(4) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002258 LOG1 S0 TTT CommandValid(true) applyindex(4) CommandIndex(5) Query CDM[C1604464909934796703](0) M(1) from(1)
+002258 LEAD S0 update CDM[1604464909934796703] from 0 to 1 update applyindex 4 to 5
+002258 LOG1 S0 can not write query in(5) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002258 LOG1 S0 TTT CommandValid(true) applyindex(5) CommandIndex(6) Query CDM[C2170379832028540044](0) M(1) from(1)
+002259 LEAD S0 update CDM[2170379832028540044] from 0 to 1 update applyindex 5 to 6
+002259 LOG1 S0 can not write query in(6) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002259 LOG1 S0 TTT CommandValid(true) applyindex(6) CommandIndex(7) Query CDM[C4480764096975071265](0) M(1) from(1)
+002259 LEAD S0 update CDM[4480764096975071265] from 0 to 1 update applyindex 6 to 7
+002259 LOG1 S0 can not write query in(7) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002259 LOG1 S2 can not write query in(10) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002260 LOG1 S2 TTT CommandValid(true) applyindex(10) CommandIndex(11) Query CDM[C994648952438941823](0) M(1) from(1)
+002260 LEAD S2 update CDM[994648952438941823] from 0 to 1 update applyindex 10 to 11
+002260 LOG1 S2 can not write query in(11) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002261 LOG1 S1 write query in(7) the num is -1 config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002262 LOG1 S1 TTT CommandValid(true) applyindex(7) CommandIndex(8) Query CDM[C4600102349249201287](0) M(1) from(1)
+002262 LEAD S1 update CDM[4600102349249201287] from 0 to 1 update applyindex 7 to 8
+002262 LOG1 S1 write query in(8) the num is -1 config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002263 LEAD S1 index(6) from(1) index(6) out.index(7) the num is -1 le is 3
+002263 LOG1 S0 TTT CommandValid(true) applyindex(7) CommandIndex(8) Query CDM[C4600102349249201287](0) M(1) from(1)
+002263 LEAD S0 update CDM[4600102349249201287] from 0 to 1 update applyindex 7 to 8
+002263 LOG1 S0 can not write query in(8) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002264 LOG1 S0 TTT CommandValid(true) applyindex(8) CommandIndex(9) Query CDM[C2198015486603155514](0) M(1) from(1)
+002264 LEAD S0 update CDM[2198015486603155514] from 0 to 1 update applyindex 8 to 9
+002264 LOG1 S0 can not write query in(9) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002264 LOG1 S0 TTT CommandValid(true) applyindex(9) CommandIndex(10) Query CDM[C1933055419499338056](0) M(1) from(1)
+002265 LEAD S0 update CDM[1933055419499338056] from 0 to 1 update applyindex 9 to 10
+002265 LOG1 S0 can not write query in(10) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002265 LOG1 S1 TTT CommandValid(true) applyindex(8) CommandIndex(9) Query CDM[C2198015486603155514](0) M(1) from(1)
+002266 LEAD S1 update CDM[2198015486603155514] from 0 to 1 update applyindex 8 to 9
+002266 LOG1 S1 write query in(9) the num is -1 config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002266 LOG1 S0 TTT CommandValid(true) applyindex(10) CommandIndex(11) Query CDM[C994648952438941823](0) M(1) from(1)
+002267 LEAD S0 update CDM[994648952438941823] from 0 to 1 update applyindex 10 to 11
+002267 LOG1 S0 can not write query in(11) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002268 CLNT C2170379832028540044 success Config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]} from S1
+002269 LOG1 S1 TTT CommandValid(true) applyindex(9) CommandIndex(10) Query CDM[C1933055419499338056](0) M(1) from(1)
+002269 LEAD S1 update CDM[1933055419499338056] from 0 to 1 update applyindex 9 to 10
+002269 LOG1 S1 write query in(10) the num is -1 config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002270 LOG1 S1 TTT CommandValid(true) applyindex(10) CommandIndex(11) Query CDM[C994648952438941823](0) M(1) from(1)
+002270 LEAD S1 update CDM[994648952438941823] from 0 to 1 update applyindex 10 to 11
+002270 LOG1 S1 write query in(11) the num is -1 config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002270 LEAD S1 index(9) from(1) index(9) out.index(9) the num is -1 le is 3
+002271 LEAD S1 index(10) from(1) index(10) out.index(10) the num is -1 le is 3
+002271 LEAD S1 index(8) from(1) index(8) out.index(8) the num is -1 le is 3
+002273 CLNT C2198015486603155514 success Config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]} from S1
+002274 CLNT C1933055419499338056 success Config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]} from S1
+002275 CLNT C4600102349249201287 success Config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]} from S1
+002276 LEAD S1 index(11) from(1) index(11) out.index(11) the num is -1 le is 3
+002279 LOG1 S1 TTT CommandValid(true) applyindex(11) CommandIndex(12) Query CDM[C809059293648548106](0) M(1) from(1)
+002279 LEAD S1 update CDM[809059293648548106] from 0 to 1 update applyindex 11 to 12
+002279 CLNT C994648952438941823 success Config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]} from S1
+002281 LOG1 S1 write query in(12) the num is -1 config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002281 LOG1 S1 TTT CommandValid(true) applyindex(12) CommandIndex(13) Query CDM[C3667453197655532403](0) M(1) from(1)
+002281 LEAD S1 update CDM[3667453197655532403] from 0 to 1 update applyindex 12 to 13
+002282 LOG1 S1 write query in(13) the num is -1 config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+002282 LEAD S1 index(12) from(1) index(12) out.index(13) the num is -1 le is 3
+002284 CLNT C809059293648548106 success Config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]} from S1
+002286 LEAD S1 index(7) from(1) index(7) out.index(12) the num is -1 le is 3
+002288 CLNT C4480764096975071265 success Config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]} from S1
+003277 LOG1 S2 TTT CommandValid(true) applyindex(11) CommandIndex(12) Query CDM[C809059293648548106](0) M(1) from(1)
+003278 LEAD S2 update CDM[809059293648548106] from 0 to 1 update applyindex 11 to 12
+003278 LOG1 S2 can not write query in(12) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+003279 LOG1 S2 TTT CommandValid(true) applyindex(12) CommandIndex(13) Query CDM[C3667453197655532403](0) M(1) from(1)
+003279 LEAD S2 update CDM[3667453197655532403] from 0 to 1 update applyindex 12 to 13
+003279 LOG1 S2 can not write query in(13) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+003290 LOG1 S0 TTT CommandValid(true) applyindex(11) CommandIndex(12) Query CDM[C809059293648548106](0) M(1) from(1)
+003291 LEAD S0 update CDM[809059293648548106] from 0 to 1 update applyindex 11 to 12
+003291 LOG1 S0 can not write query in(12) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+003291 LOG1 S0 TTT CommandValid(true) applyindex(12) CommandIndex(13) Query CDM[C3667453197655532403](0) M(1) from(1)
+003291 LEAD S0 update CDM[3667453197655532403] from 0 to 1 update applyindex 12 to 13
+003292 LOG1 S0 can not write query in(13) config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]}
+012065 LEAD S1 is time out
+012069 CLNT C3667453197655532403 fail WrongLeader(false) ERR(TIME OUT)
+012338 LOG1 S1 TTT CommandValid(true) applyindex(13) CommandIndex(14) TIMEOUT CDM[C-1](0) M(-1) from(1)
+012339 LOG1 S1 for TIMEOUT update applyindex 13 to 14
+013079 CLNT C3667453197655532403 send to 2 Query num is -1
+013085 CLNT C3667453197655532403 fail WrongLeader(true) ERR()
+013497 LOG1 S2 TTT CommandValid(true) applyindex(13) CommandIndex(14) TIMEOUT CDM[C-1](0) M(-1) from(1)
+013498 LOG1 S2 for TIMEOUT update applyindex 13 to 14
+013498 LOG1 S0 TTT CommandValid(true) applyindex(13) CommandIndex(14) TIMEOUT CDM[C-1](0) M(-1) from(1)
+013499 LOG1 S0 for TIMEOUT update applyindex 13 to 14
+014090 CLNT C3667453197655532403 send to 0 Query num is -1
+014095 CLNT C3667453197655532403 fail WrongLeader(true) ERR()
+015100 CLNT C3667453197655532403 send to 1 Query num is -1
+015104 LEAD S1 in1 is 1 okk1 is true
+015104 LOG1 S1 had done Query num = -1
+015108 CLNT C3667453197655532403 success Config is {2 [101 101 101 101 101 100 100 100 100 100] map[100:[server-100-0 server-100-1 server-100-2] 101:[server-101-0 server-101-1 server-101-2]]} from S1
+022408 LOG1 S1 TTT CommandValid(true) applyindex(14) CommandIndex(15) TIMEOUT CDM[C-1](0) M(-1) from(1)
+022409 LOG1 S1 for TIMEOUT update applyindex 14 to 15
+023450 LOG1 S0 TTT CommandValid(true) applyindex(14) CommandIndex(15) TIMEOUT CDM[C-1](0) M(-1) from(1)
+023451 LOG1 S2 TTT CommandValid(true) applyindex(14) CommandIndex(15) TIMEOUT CDM[C-1](0) M(-1) from(1)
+023451 LOG1 S2 for TIMEOUT update applyindex 14 to 15
+023452 LOG1 S0 for TIMEOUT update applyindex 14 to 15
+032446 LOG1 S1 TTT CommandValid(true) applyindex(15) CommandIndex(16) TIMEOUT CDM[C-1](0) M(-1) from(1)
+032446 LOG1 S1 for TIMEOUT update applyindex 15 to 16
+033674 LOG1 S2 TTT CommandValid(true) applyindex(15) CommandIndex(16) TIMEOUT CDM[C-1](0) M(-1) from(1)
+033675 LOG1 S2 for TIMEOUT update applyindex 15 to 16
+033675 LOG1 S0 TTT CommandValid(true) applyindex(15) CommandIndex(16) TIMEOUT CDM[C-1](0) M(-1) from(1)
+033675 LOG1 S0 for TIMEOUT update applyindex 15 to 16
+  ... Passed
+PASS
+ok  	6.824/shardkv	5.200s
