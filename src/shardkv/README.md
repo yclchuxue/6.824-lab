@@ -6,3 +6,10 @@
 
 ## 分片迁移
     在 Group 中的 server 需要实时监控 config 的变化，如果发生涉及到自己的分片迁移，则需要停止该分片上的服务，完成迁移。迁移通过 RPC 完成，如果发现 Group 中多添加了一个分片，则立即查询上一个 config向上一个负责此分片的 Group Leader Server ，获取此分片的 KVS。而发现Group 中删除了一个分区则立即停止该分区的服务（及将server 中的 manageshards[shard] 设为 false）。
+
+    分片迁移过程中，需要向其他 Group 获取分片的 KVS。但该向哪一个 Group 发送 RPC 则需要看 之前的 config 信息。但是 kv.config.num - 1 的 config 并不合适，也许该 config 中负责该分片的仍是自己，所以应该遍历之前的 config 找到该分片的负责 Group 不是自己的 Group，并向它发送 RPC 请求 KVS。
+
+    config 更新迅速时，上一个拥有该分片的 Group 还未获取到该分片的 KVS 就再次失去了对该分区的所有权。在 Server 中增加一个 KVSMAP map[shard]num，当拥有该分片后发送 RPC 请求分片 KVS， 请求到 KVS 后修改这个 KVSMAP 的 value 为拥有该分片的 config 的 num。当接收到请求分片 KVS 的 RPC 时，先检查 args.num 是否与 KVSMAP 中该分片的 num 一致，若一致则将该分片的 KVS 发送给请求端 server， 若不一致则让对方稍后再试。
+
+## 数据恢复
+    当 server 恢复数据时，通过快照和日志将 KVS 恢复，如果不保存 config 等信息，则会导致需要重新获取 config 而 KVSMAP 中缺少对每个 shard 的 num 的保存。 导致需要向其他 group 获取分片的 KVS 失败，一直到 num 为 0。虽然这样似乎也可以，但在数据恢复时会浪费很多时间。
