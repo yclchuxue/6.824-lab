@@ -11,5 +11,14 @@
 
     config 更新迅速时，上一个拥有该分片的 Group 还未获取到该分片的 KVS 就再次失去了对该分区的所有权。在 Server 中增加一个 KVSMAP map[shard]num，当拥有该分片后发送 RPC 请求分片 KVS， 请求到 KVS 后修改这个 KVSMAP 的 value 为拥有该分片的 config 的 num。当接收到请求分片 KVS 的 RPC 时，先检查 args.num 是否与 KVSMAP 中该分片的 num 一致，若一致则将该分片的 KVS 发送给请求端 server， 若不一致则让对方稍后再试。
 
+    若 config 更新后 leader 获得分片的 KVS 将 manageshards 更新后开始对该分区服务，但跟随者们并未获取到 KVS， 则这些 server 中的 KVS 就出现了不一致的现象，但从日志中是无法发现的。当其他 server 成为 Leader 后则会导致提供错误的 kv 服务。解决方法是当 leader 获取到新加入分片的 KVS 时，将这些信息写入日志，从管道读出后再处理（例如，将 KVS 写入日志，从管道读出时再写入 []KVS 并修改 manageshards 和 KVSMAP），使用这种方式后只需要 Leader 发生获取 KVS 的请求，跟随者则通过领导者发生，无需太多跨 Group 的 RPC。
+
+    shard 从 G1 转移到 G2 再转移到 G1 ，但 G1 未察觉 shard 被 G2 管理过，不会向 G2 请求该 shard 的 KVS。
+
+    G1 在 num1 时管理 shard1，被重启后 manageshards 和 KVSMAP 清空， config 更新到 num2， G1 会向 num1 时的自己请求数据，
+
 ## 数据恢复
     当 server 恢复数据时，通过快照和日志将 KVS 恢复，如果不保存 config 等信息，则会导致需要重新获取 config 而 KVSMAP 中缺少对每个 shard 的 num 的保存。 导致需要向其他 group 获取分片的 KVS 失败，一直到 num 为 0。虽然这样似乎也可以，但在数据恢复时会浪费很多时间。
+
+## 快照
+    当 server 的 config 、KVSMAP 、manageshards 更新后， 如果这些不存入快照，则导致 manageshards 等数据会超前 KVS 等数据，会导致一些错误。 所以需要将这些信息也存入快照中。同时恢复时可以大幅度减少获取 config 等信息的时间。
