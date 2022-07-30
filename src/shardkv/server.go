@@ -22,8 +22,11 @@ type Op struct {
 	Cli_index int64
 	Cmd_index int64
 	Ser_index int64
+	Gro_index int64
 	Operate   string
 	Shard     int
+	Num       int
+	KVS       map[string]string
 	Key       string
 	Value     string
 }
@@ -63,30 +66,34 @@ type SnapShot struct {
 	Kvs         []map[string]string
 	Csm         map[int64]int64
 	Cdm         map[int64]int64
+	ManageShards map[int]bool
+	KVSMAP 		map[int]int
+	Config   	shardctrler.Config
+
 	Apliedindex int
 }
 
 func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
-	// DEBUG(dLeader, "S%d G%d <-- C%v Get key(%v)\n", kv.me, kv.gid, args.CIndex, args.Key)
+	DEBUG(dLeader, "S%d G%d <-- C%v Get key(%v)\n", kv.me, kv.gid, args.CIndex, args.Key)
 	_, isLeader := kv.rf.GetState()
 	if !isLeader {
-		// DEBUG(dLog, "S%d G%d this is not leader\n", kv.me, kv.gid)
+		DEBUG(dLog, "S%d G%d this is not leader\n", kv.me, kv.gid)
 		reply.Err = ErrWrongLeader
 		return
 	}
 
 	kv.mu.Lock()
-	// DEBUG(dLog, "S%d G%d config(%v) kvs(%v)\n", kv.me, kv.gid, kv.config, kv.KVS)
-	if !kv.manageshards[args.Shard] {
-		// DEBUG(dLog, "S%d G%d the manageshards(%v) not have this shard%v\n", kv.me, kv.gid, kv.manageshards, args.Shard)
+	DEBUG(dLog, "S%d G%d config(%v) kvs(%v)\n", kv.me, kv.gid, kv.config, kv.KVS)
+	if !kv.manageshards[args.Shard] || kv.config.Num != kv.KVSMAP[args.Shard] {
+		DEBUG(dLog, "S%d G%d the manageshards(%v) not have this shard%v\n", kv.me, kv.gid, kv.manageshards, args.Shard)
 		reply.Err = ErrWrongGroup
 		kv.mu.Unlock()
 		return
 	}
 
 	if kv.applyindex == 0 {
-		// DEBUG(dLog, "S%d G%d the snap not applied applyindex is %v\n", kv.me, kv.gid, kv.applyindex)
+		DEBUG(dLog, "S%d G%d the snap not applied applyindex is %v\n", kv.me, kv.gid, kv.applyindex)
 		kv.mu.Unlock()
 		reply.Err = ErrTimeOut
 		time.Sleep(TIMEOUT * time.Microsecond)
@@ -96,7 +103,7 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 	in1, okk1 := kv.CDM[args.CIndex]
 	if okk1 && in1 == args.OIndex {
 		reply.Err = OK //had done
-		// DEBUG(dLeader, "S%d G%d had done key(%v) from(C%v) Oindex(%v)\n", kv.me, kv.gid, args.Key, args.CIndex, args.OIndex)
+		DEBUG(dLeader, "S%d G%d had done key(%v) from(C%v) Oindex(%v)\n", kv.me, kv.gid, args.Key, args.CIndex, args.OIndex)
 		val, ok := kv.KVS[args.Shard][args.Key]
 		if ok {
 			reply.Err = OK
@@ -114,6 +121,7 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 	var index int
 	O := Op{
 		Ser_index: int64(kv.me),
+		Gro_index: int64(kv.gid),
 		Cli_index: args.CIndex,
 		Cmd_index: args.OIndex,
 		Operate:   "Get",
@@ -130,14 +138,14 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 	if in2 == args.OIndex {
 		_, isLeader = kv.rf.GetState()
 	} else {
-		// DEBUG(dLeader, "S%d G%d start Get key(%v)\n", kv.me, kv.gid, args.Key)
+		DEBUG(dLeader, "S%d G%d start Get key(%v)\n", kv.me, kv.gid, args.Key)
 		index, _, isLeader = kv.rf.Start(O)
 		// go kv.SendToSnap()
 	}
 
 	if !isLeader {
 		reply.Err = ErrWrongLeader
-		// DEBUG(dLeader, "S%d G%d <-- C%v Get key(%v) but not leader\n", kv.me, kv.gid, args.CIndex, args.Key)
+		DEBUG(dLeader, "S%d G%d <-- C%v Get key(%v) but not leader\n", kv.me, kv.gid, args.CIndex, args.Key)
 	} else {
 
 		// OS := kv.rf.Find(index)
@@ -156,22 +164,22 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 		kv.CSM[args.CIndex] = args.OIndex
 		kv.mu.Unlock()
 
-		// DEBUG(dLeader, "S%d G%d <-- C%v Get key(%v) wait index(%v)\n", kv.me, kv.gid, args.CIndex, args.Key, index)
+		DEBUG(dLeader, "S%d G%d <-- C%v Get key(%v) wait index(%v)\n", kv.me, kv.gid, args.CIndex, args.Key, index)
 		for {
 			select {
 			case out := <-kv.get:
-				if index <= out.index && out.O == O {
+				if index == out.index {
 					kv.mu.Lock()
-					// DEBUG(dLeader, "S%d G%d kvs(%v) index(%v) from(%v)\n", kv.me, kv.gid, kv.KVS, index, kv.me)
+					DEBUG(dLeader, "S%d G%d kvs(%v) index(%v) from(%v)\n", kv.me, kv.gid, kv.KVS, index, kv.me)
 					val, ok := kv.KVS[args.Shard][args.Key]
 					if ok {
-						// DEBUG(dLeader, "S%d G%d Get key(%v) value(%v) OK from(C%v)\n", kv.me, kv.gid, args.Key, val, args.CIndex)
+						DEBUG(dLeader, "S%d G%d Get key(%v) value(%v) OK from(C%v)\n", kv.me, kv.gid, args.Key, val, args.CIndex)
 						reply.Err = OK
 						reply.Value = val
 						kv.mu.Unlock()
 						return
 					} else {
-						// DEBUG(dLeader, "S%d G%d Get key(%v) value(%v) this map do not have value map %v from(C%v)\n", kv.me, kv.gid, args.Key, val, kv.KVS, args.CIndex)
+						DEBUG(dLeader, "S%d G%d Get key(%v) value(%v) this map do not have value map %v from(C%v)\n", kv.me, kv.gid, args.Key, val, kv.KVS, args.CIndex)
 						reply.Err = ErrNoKey
 						kv.mu.Unlock()
 						return
@@ -180,7 +188,7 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 
 			case <-time.After(TIMEOUT * time.Microsecond):
 				kv.mu.Lock()
-				// DEBUG(dLeader, "S%d G%d is time out\n", kv.me, kv.gid)
+				DEBUG(dLeader, "S%d G%d is time out\n", kv.me, kv.gid)
 				reply.Err = ErrTimeOut
 				if _, isLeader := kv.rf.GetState(); !isLeader {
 					reply.Err = ErrWrongLeader
@@ -197,24 +205,25 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 
 func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	// Your code here.
-	// DEBUG(dLeader, "S%d G%d <-- C%v putappend key(%v) value(%v)\n", kv.me, kv.gid, args.CIndex, args.Key, args.Value)
+	DEBUG(dLeader, "S%d G%d <-- C%v putappend key(%v) value(%v)\n", kv.me, kv.gid, args.CIndex, args.Key, args.Value)
 	_, isLeader := kv.rf.GetState()
 	if !isLeader {
-		// DEBUG(dLog, "S%d G%d this is not leader\n", kv.me, kv.gid)
+		DEBUG(dLog, "S%d G%d this is not leader\n", kv.me, kv.gid)
 		reply.Err = ErrWrongLeader
 		return
 	}
+
 	kv.mu.Lock()
-	// DEBUG(dLog, "S%d G%d config(%v) kvs(%v)\n", kv.me, kv.gid, kv.config, kv.KVS)
-	if !kv.manageshards[args.Shard] {
-		// DEBUG(dLog, "S%d G%d the manageshards(%v) not have this shard%v config%v\n", kv.me, kv.gid, kv.manageshards, args.Shard, kv.config)
+	DEBUG(dLog, "S%d G%d config(%v) kvs(%v)\n", kv.me, kv.gid, kv.config, kv.KVS)
+	if !kv.manageshards[args.Shard] || kv.config.Num != kv.KVSMAP[args.Shard] {
+		DEBUG(dLog, "S%d G%d the manageshards(%v) not have this shard%v config%v\n", kv.me, kv.gid, kv.manageshards, args.Shard, kv.config)
 		reply.Err = ErrWrongGroup
 		kv.mu.Unlock()
 		return
 	}
 
 	if kv.applyindex == 0 {
-		// DEBUG(dLog, "S%d G%d the snap not applied applyindex is %v\n", kv.me, kv.gid, kv.applyindex)
+		DEBUG(dLog, "S%d G%d the snap not applied applyindex is %v\n", kv.me, kv.gid, kv.applyindex)
 		kv.mu.Unlock()
 		reply.Err = ErrTimeOut
 		time.Sleep(TIMEOUT * time.Microsecond)
@@ -224,7 +233,7 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	in1, okk1 := kv.CDM[args.CIndex]
 	if okk1 && in1 == args.OIndex {
 		reply.Err = OK //had done
-		// DEBUG(dLeader, "S%d G%d had done key(%v) value(%v) Op(%v) from(C%d) OIndex(%d)\n", kv.me, kv.gid, args.Key, args.Value, args.Op, args.CIndex, args.OIndex)
+		DEBUG(dLeader, "S%d G%d had done key(%v) value(%v) Op(%v) from(C%d) OIndex(%d)\n", kv.me, kv.gid, args.Key, args.Value, args.Op, args.CIndex, args.OIndex)
 		kv.mu.Unlock()
 		return
 	} else if !okk1 {
@@ -235,6 +244,7 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	var index int
 	O := Op{
 		Ser_index: int64(kv.me),
+		Gro_index: int64(kv.gid),
 		Cli_index: args.CIndex,
 		Cmd_index: args.OIndex,
 		Operate:   args.Op,
@@ -258,7 +268,7 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	}
 
 	if !isLeader {
-		// DEBUG(dLeader, "S%d %d <-- C%v %v key(%v) value(%v) but not leader\n", kv.me, kv.gid, args.CIndex, args.Op, args.Key, args.Value)
+		DEBUG(dLeader, "S%d %d <-- C%v %v key(%v) value(%v) but not leader\n", kv.me, kv.gid, args.CIndex, args.Op, args.Key, args.Value)
 		reply.Err = ErrWrongLeader
 	} else {
 		// OS := kv.rf.Find(index)
@@ -277,19 +287,19 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		kv.CSM[args.CIndex] = args.OIndex
 		kv.mu.Unlock()
 
-		// DEBUG(dLeader, "S%d G%d <-- C%v %v key(%v) value(%v) index(%v) wait\n", kv.me, kv.gid, args.CIndex, args.Op, args.Key, args.Value, index)
+		DEBUG(dLeader, "S%d G%d <-- C%v %v key(%v) value(%v) index(%v) wait\n", kv.me, kv.gid, args.CIndex, args.Op, args.Key, args.Value, index)
 		for {
 			select {
 			case out := <-kv.putAdd:
-				if index <= out.index && out.O == O {
-					// DEBUG(dLeader, "S%d G%d %v index(%v) applyindex(%v)  this cmd_index(%v) key(%v) value(%v) from(C%v)\n", kv.me, kv.gid, args.Op, index, out.index, args.OIndex, args.Key, args.Value, args.CIndex)
+				if index == out.index {
+					DEBUG(dLeader, "S%d G%d %v index(%v) applyindex(%v)  this cmd_index(%v) key(%v) value(%v) from(C%v)\n", kv.me, kv.gid, args.Op, index, out.index, args.OIndex, args.Key, args.Value, args.CIndex)
 					reply.Err = OK
 					return
 				}
 
 			case <-time.After(TIMEOUT * time.Microsecond):
 				kv.mu.Lock()
-				// DEBUG(dLeader, "S%d G%d time out\n", kv.me, kv.gid)
+				DEBUG(dLeader, "S%d G%d time out\n", kv.me, kv.gid)
 				reply.Err = ErrTimeOut
 				if _, isLeader := kv.rf.GetState(); !isLeader {
 					reply.Err = ErrWrongLeader
@@ -321,6 +331,9 @@ func (kv *ShardKV) SendSnapShot() {
 		Kvs:         kv.KVS,
 		Csm:         kv.CSM,
 		Cdm:         kv.CDM,
+		ManageShards: kv.manageshards,
+		KVSMAP: 	 kv.KVSMAP,
+		Config: 	 kv.config,
 		Apliedindex: kv.applyindex,
 	}
 	e.Encode(S)
@@ -332,23 +345,28 @@ func (kv *ShardKV) SendSnapShot() {
 }
 
 func (kv *ShardKV) CheckSnap() {
-	kv.mu.Lock()
+	//kv.mu.Lock()
+
+	DEBUG(dLog, "S%d G%d kvs is %v\n", kv.me, kv.gid, kv.KVS)
+	DEBUG(dLog, "S%d G%d config is %v\n", kv.me, kv.gid, kv.config)
+	DEBUG(dLog, "S%d G%d manageshards is %v\n", kv.me, kv.gid, kv.manageshards)
+	DEBUG(dLog, "S%d G%d KVSMAP(%v)\n", kv.me, kv.gid, kv.KVSMAP)
 
 	X, num := kv.rf.RaftSize()
-	DEBUG(dSnap, "S%d G%d the num is (%v) applidindex(%v) X(%v)\n", kv.me, kv.gid, num, kv.applyindex, X)
+	DEBUG(dSnap, "S%d G%d the size is (%v) applidindex(%v) X(%v)\n", kv.me, kv.gid, num, kv.applyindex, X)
 	if num > int(float64(kv.maxraftstate)*0.8) {
 		if kv.applyindex == 0 || kv.applyindex <= X {
-			kv.mu.Unlock()
+			// kv.mu.Unlock()
 			return
 		}
 		kv.SendSnapShot()
 	}
-	kv.mu.Unlock()
+	//kv.mu.Unlock()
 }
 
 func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 	// config := kv.mck.Query(-1)
-	kv.mu.Lock()
+
 	DEBUG(dLog, "S%d G%d <--- S%d G%d get shard(%v) num(%v) kvs\n", kv.me, kv.gid, args.SIndex, args.GIndex, args.Shard, args.Num)
 	oldconfig := shardctrler.Config{}
 
@@ -370,11 +388,12 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 		DEBUG(dLog, "S%d G%d shard(%v) is not in this Group oldconfig(%v)\n", kv.me, kv.gid, args.Shard, oldconfig)
 		return
 	}
-	
+
+	kv.mu.Lock()
 	if kv.KVSMAP[args.Shard] == args.Num {
 
 		DEBUG(dLog, "S%d G%d the kvs is %v\n", kv.me, kv.gid, kv.KVS)
-		DEBUG(dLog, "S%d G%d success return to S%d G%d the kvs(%v) shard is %v\n", kv.me, kv.gid, args.SIndex, args.GIndex, kv.KVS[args.Shard], args.Shard)
+		DEBUG(dLog, "S%d G%d success return to S%d G%d the kvs(%v) shard is %v KVSMAP[shard](%v) args.Num(%v)\n", kv.me, kv.gid, args.SIndex, args.GIndex, kv.KVS[args.Shard], args.Shard, kv.KVSMAP[args.Shard], args.Num)
 		reply.Kvs = kv.KVS[args.Shard]
 		reply.Err = OK
 		reply.Shard = args.Shard
@@ -386,6 +405,11 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 }
 
 func (kv *ShardKV) SendToGetConfig(num int, shard int) {
+	_, isLeader := kv.rf.GetState()
+	if !isLeader {
+		return
+	}
+
 	args := GetConfigArgs{}
 	args.Shard = shard
 	args.SIndex = kv.me
@@ -403,21 +427,37 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 			}
 		} else {
 			kv.mu.Lock()
-			kv.manageshards[shard] = true
-			kv.KVSMAP[shard] = The_Num
+			// kv.manageshards[shard] = true
+			// kv.KVSMAP[shard] = The_Num
+			// kv.KVS[shard] = {}
+			kvs := make(map[string]string)
+			for k, v := range kv.KVS[shard] {
+				kvs[k] = v
+			}
+			O := Op{
+				Ser_index: int64(kv.me),
+				Gro_index: int64(kv.gid),
+				Cli_index: -2,
+				Operate:   "Config",
+				KVS:       kvs,
+				Shard:     shard,
+				Num:       The_Num,
+			}
 			kv.mu.Unlock()
+			_, _, Leader := kv.rf.Start(O)
+			DEBUG(dInfo, "S%d G%d Start CON old num = 0 %v\n", kv.me, kv.gid, Leader)
 			return
 		}
 	}
-	
+
 	try_num := 3
 	for {
-		kv.mu.Lock()
+		// kv.mu.Lock()
 		args.Num = num
 		gid := oldconfig.Shards[shard]
 		DEBUG(dLog, "S%d G%d shard(%d) num(%d) the oldconfig is %v\n", kv.me, kv.gid, shard, num, oldconfig)
 		if servers, ok := oldconfig.Groups[gid]; ok {
-			kv.mu.Unlock()
+			// kv.mu.Unlock()
 			DEBUG(dLog, "S%d G%d need send to get shard num is %d\n", kv.me, kv.gid, num)
 
 			for si := 0; si < len(servers); {
@@ -433,43 +473,91 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 					try_num = 3
 				}
 
-				kv.mu.Lock()
+				// if The_Num != kv.config.Num {
+				// 	DEBUG(dLog, "S%d G%d the_num(%v) config.Num(%v) has out-of-date\n", kv.me, kv.gid, The_Num, kv.config.Num)
+				// 	return
+				// }
+
 				if ok && reply.Err == OK {
 					DEBUG(dLog, "S%d G%d success get shard%v kvs(%v)\n", kv.me, kv.gid, shard, reply.Kvs)
-					kv.KVS[shard] = reply.Kvs
-					kv.KVSMAP[shard] = The_Num
-					kv.manageshards[shard] = true
-					kv.mu.Unlock()
+					kvs := make(map[string]string)
+					for k, v := range reply.Kvs {
+						kvs[k] = v
+					}
+					O := Op{
+						Ser_index: int64(kv.me),
+						Cli_index: -2,
+						Gro_index: int64(kv.gid),
+						Operate:   "Config",
+						KVS:       kvs,
+						Shard:     shard,
+						Num:       The_Num,
+					}
+
+					_, _, Leader := kv.rf.Start(O)
+					DEBUG(dInfo, "S%d G%d Start CON success get shard%v kvs %v\n", kv.me, kv.gid, shard, Leader)
 					return
 				} else if ok && reply.Err == ErrWrongGroup {
 					DEBUG(dLog, "S%d G%d the Group ERROR num(%v) shard(%v)\n", kv.me, kv.gid, num, shard)
-					kv.mu.Unlock()
+
 					num--
 					DEBUG(dLog, "S%d G%d nextnum is %d shard(%v)\n", kv.me, kv.gid, num, shard)
 
 					for {
 						if num > 0 {
+
 							oldconfig = kv.mck.Query(num)
 							if oldconfig.Shards[shard] == kv.gid {
 								num--
 							} else {
 								DEBUG(dLog, "S%d G%d nextnum1 is %d shard(%v)\n", kv.me, kv.gid, num, shard)
 								if num == 0 {
+
+									// kv.manageshards[shard] = true
+									// kv.KVSMAP[shard] = The_Num
 									kv.mu.Lock()
-									kv.manageshards[shard] = true
-									kv.KVSMAP[shard] = The_Num
 									DEBUG(dLog, "S%d G%d num is 0, shard(%v)\n", kv.me, kv.gid, shard)
+									kvs := make(map[string]string)
+									for k, v := range kv.KVS[shard] {
+										kvs[k] = v
+									}
+									O := Op{
+										Ser_index: int64(kv.me),
+										Cli_index: -2,
+										Gro_index: int64(kv.gid),
+										Operate:   "Config",
+										KVS:       kvs,
+										Shard:     shard,
+										Num:       The_Num,
+									}
 									kv.mu.Unlock()
+									_, _, Leader := kv.rf.Start(O)
+									DEBUG(dInfo, "S%d G%d Start CON old num = 0 %v\n", kv.me, kv.gid, Leader)
 									return
 								}
 								break
 							}
 						} else {
-							kv.mu.Lock()
-							kv.manageshards[shard] = true
-							kv.KVSMAP[shard] = The_Num
+							// kv.manageshards[shard] = true
+							// kv.KVSMAP[shard] = The_Num
 							DEBUG(dLog, "S%d G%d num is 0\n", kv.me, kv.gid)
+							kvs := make(map[string]string)
+							kv.mu.Lock()
+							for k, v := range kv.KVS[shard] {
+								kvs[k] = v
+							}
+							O := Op{
+								Ser_index: int64(kv.me),
+								Cli_index: -2,
+								Gro_index: int64(kv.gid),
+								Operate:   "Config",
+								KVS:       kvs,
+								Shard:     shard,
+								Num:       The_Num,
+							}
 							kv.mu.Unlock()
+							_, _, Leader := kv.rf.Start(O)
+							DEBUG(dInfo, "S%d G%d Start CON old num = 0 %v\n", kv.me, kv.gid, Leader)
 							return
 						}
 					}
@@ -492,12 +580,13 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 						}
 					}
 				}
-				kv.mu.Unlock()
+
 				// ... not ok, or ErrWrongLeader
 			}
 		} else {
+			fmt.Println("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 			kv.manageshards[shard] = true
-			kv.mu.Unlock()
+			// kv.mu.Unlock()
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -506,7 +595,9 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 }
 
 func (kv *ShardKV) CheckConfig() {
+
 	kv.mu.Lock()
+
 	newconfig := kv.mck.Query(-1)
 
 	if kv.config.Num != newconfig.Num {
@@ -515,7 +606,7 @@ func (kv *ShardKV) CheckConfig() {
 		DEBUG(dLog, "S%d G%d new config(%v)\n", kv.me, kv.gid, newconfig)
 		DEBUG(dLog, "S%d G%d manageMap(%v)\n", kv.me, kv.gid, kv.manageshards)
 	} else {
-		// DEBUG(dLog, "S%d G%d num is not change\n", kv.me, kv.gid)
+		DEBUG(dLog, "S%d G%d num is not change\n", kv.me, kv.gid)
 		kv.mu.Unlock()
 		return
 	}
@@ -524,41 +615,26 @@ func (kv *ShardKV) CheckConfig() {
 	num := kv.config.Num
 	gid := kv.gid
 	kv.rpcindex++
-	kv.mu.Unlock()
 
 	for i, it := range newconfig.Shards {
 
-		go func(i, it int) {
+		if it == gid {
 
-			if it == gid {
-				kv.mu.Lock()
-				if !kv.manageshards[i] {
-					DEBUG(dLog, "S%d G%d add a shard(%d) num(%v) the rpcindex is %v\n", kv.me, kv.gid, i, num, kv.rpcindex)
-					// if kv.config.Num == 1 {
-					// 	kv.manageshards[i] = false
-					// 	kv.KVSMAP[i] = kv.config.Num
-					// 	kv.mu.Unlock()
-					// 	return
-					// }
-
-					kv.mu.Unlock()
-					kv.SendToGetConfig(num, i)
-				} else {
-					kv.KVSMAP[i] = newconfig.Num
-					kv.mu.Unlock()
-				}
+			if !kv.manageshards[i] {
+				DEBUG(dLog, "S%d G%d add a shard(%d) num(%v) the rpcindex is %v\n", kv.me, kv.gid, i, num, kv.rpcindex)
+				go kv.SendToGetConfig(num, i)
 			} else {
-				kv.mu.Lock()
-				if kv.manageshards[i] {
-					kv.manageshards[i] = false
-					DEBUG(dLog, "S%d G%d sub a shard(%d)\n", kv.me, kv.gid, i)
-					kv.mu.Unlock()
-				} else {
-					kv.mu.Unlock()
-				}
+				kv.KVSMAP[i] = newconfig.Num
 			}
-		}(i, it)
+		} else {
+			if kv.manageshards[i] {
+				kv.manageshards[i] = false
+				DEBUG(dLog, "S%d G%d sub a shard(%d)\n", kv.me, kv.gid, i)
+			}
+		}
 	}
+
+	kv.mu.Unlock()
 }
 
 //
@@ -634,12 +710,12 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	//kv.GetManageMap()
 
 	DEBUG(dSnap, "S%d G%v ????????? update applyindex to %v the config is %v\n", kv.me, kv.gid, kv.applyindex, kv.config)
-	var NUMS int
-	if maxraftstate > 0 {
-		NUMS = maxraftstate / 80
-	} else {
-		NUMS = -1
-	}
+	// var NUMS int
+	// if maxraftstate > 0 {
+	// 	NUMS = maxraftstate / 80
+	// } else {
+	// 	NUMS = -1
+	// }
 	LOGinit()
 	var command Op
 
@@ -658,19 +734,14 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 		}
 	}()
 
-	go func() {
-		if maxraftstate > 0 {
-			for {
-				// if !kv.killed() {
-				kv.CheckSnap()
-				
-				time.Sleep(TIMEOUT * time.Microsecond)
-				// } else {
-				// 	return
-				// }
-			}
-		}
-	}()
+	// go func() {
+	// 	if maxraftstate > 0 {
+	// 		for {
+	// 			kv.CheckSnap()
+	// 			time.Sleep(TIMEOUT * time.Microsecond)
+	// 		}
+	// 	}
+	// }()
 
 	go func() {
 		count := 0
@@ -682,19 +753,34 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 				if m.CommandValid {
 					kv.mu.Lock()
 					O := m.Command.(Op)
-					// DEBUG(dLog, "S%d G%d TTT CommandValid(%v) applyindex(%v) CommandIndex(%v) %v key(%v) value(%v) CDM[C%v](%v) M(%v) from(%v)\n", kv.me, kv.gid, m.CommandValid, kv.applyindex, m.CommandIndex, O.Operate, O.Key, O.Value, O.Cli_index, kv.CDM[O.Cli_index], O.Cmd_index, O.Ser_index)
+					DEBUG(dLog, "S%d G%d TTT CommandValid(%v) applyindex(%v) CommandIndex(%v) %v key(%v) value(%v) CDM[C%v](%v) M(%v) from(%v)\n", kv.me, kv.gid, m.CommandValid, kv.applyindex, m.CommandIndex, O.Operate, O.Key, O.Value, O.Cli_index, kv.CDM[O.Cli_index], O.Cmd_index, O.Ser_index)
 
 					if kv.applyindex+1 == m.CommandIndex {
-						// DEBUG(dSnap, "S%d G%d kvs is %v\n", kv.me, kv.gid, kv.KVS)
-						// DEBUG(dSnap, "S%d G%d config is %v\n", kv.me, kv.gid, kv.config)
+
 						if O.Cli_index == -1 {
-							// DEBUG(dLog, "S%d G%d for TIMEOUT update applyindex %v to %v\n", kv.me, kv.gid, kv.applyindex, m.CommandIndex)
+							DEBUG(dLog, "S%d G%d for TIMEOUT update applyindex %v to %v\n", kv.me, kv.gid, kv.applyindex, m.CommandIndex)
 							kv.applyindex = m.CommandIndex
 						} else if O.Cli_index == -2 {
-							// DEBUG(dLog, "S%d G%d %v Shard(%v)\n", kv.me, kv.gid, O.Operate, O.Shard)
+							DEBUG(dLog, "S%d G%d %v Shard(%v)\n", kv.me, kv.gid, O.Operate, O.Shard)
 							kv.applyindex = m.CommandIndex
+							kv.KVSMAP[O.Shard] = O.Num
+							if kv.config.Shards[O.Shard] == kv.gid {
+								kv.manageshards[O.Shard] = true
+							}
+							//  else {
+							// 	DEBUG(dInfo, "S%d G%d PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP Manageshards[%v]%v gid %v\n", kv.me, kv.gid, O.Shard, kv.config.Shards[O.Shard], kv.gid)
+							// 	kv.manageshards[O.Shard] = false
+							// }
+							
+							for k, v := range O.KVS {
+								kv.KVS[O.Shard][k] = v
+							}
+							DEBUG(dInfo, "S%d G%d CCCC Update Config KVS[%v] to %v\n", kv.me, kv.gid, O.Shard, O.KVS)
+							DEBUG(dInfo, "S%d G%d Update Config Manageshards is %v\n", kv.me, kv.gid, kv.manageshards)
+							DEBUG(dInfo, "S%d G%d Update Config KVSMAP(%v)\n", kv.me, kv.gid, kv.KVSMAP)
+
 						} else if kv.CDM[O.Cli_index] < O.Cmd_index {
-							// DEBUG(dLeader, "S%d G%d update CDM[%v] from %v to %v update applyindex %v to %v\n", kv.me, kv.gid, O.Cli_index, kv.CDM[O.Cli_index], O.Cmd_index, kv.applyindex, m.CommandIndex)
+							DEBUG(dLeader, "S%d G%d update CDM[%v] from %v to %v update applyindex %v to %v\n", kv.me, kv.gid, O.Cli_index, kv.CDM[O.Cli_index], O.Cmd_index, kv.applyindex, m.CommandIndex)
 							kv.applyindex = m.CommandIndex
 
 							kv.CDM[O.Cli_index] = O.Cmd_index
@@ -702,75 +788,90 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 
 								select {
 								case kv.putAdd <- COMD{index: m.CommandIndex, O: O}:
-									// DEBUG(dLog, "S%d G%d write putAdd in(%v)\n", kv.me, kv.gid, m.CommandIndex)
+									DEBUG(dLog, "S%d G%d write putAdd in(%v)\n", kv.me, kv.gid, m.CommandIndex)
 								default:
-									// DEBUG(dLog, "S%d G%d can not write putAdd in(%v)\n", kv.me, kv.gid, m.CommandIndex)
+									DEBUG(dLog, "S%d G%d can not write putAdd in(%v)\n", kv.me, kv.gid, m.CommandIndex)
 								}
 
 								val, ok := kv.KVS[O.Shard][O.Key]
 								if ok {
-									// // DEBUG(dLog, "S%d BBBBBBB append Key(%v) from %v to %v from(me)\n", kv.me, O.Key, kv.KVS[O.Key], kv.KVS[O.Key]+O.Value)
-									// DEBUG(dLog, "S%d G%d BBBBBBB append Key(%v) from %v to value(%v) from(%v)\n", kv.me, kv.gid, O.Key, kv.KVS[O.Shard][O.Key], O.Value, O.Ser_index)
+									DEBUG(dLog, "S%d G%d BBBBBBB append Key(%v) from %v to value(%v) from(%v)\n", kv.me, kv.gid, O.Key, kv.KVS[O.Shard][O.Key], O.Value, O.Ser_index)
 									kv.KVS[O.Shard][O.Key] = val + O.Value
 								} else {
-									// DEBUG(dLog, "S%d G%d BBBBBBB append key(%v) from nil to %v from(%v)\n", kv.me, kv.gid, O.Key, O.Value, O.Ser_index)
+									DEBUG(dLog, "S%d G%d BBBBBBB append key(%v) from nil to %v from(%v)\n", kv.me, kv.gid, O.Key, O.Value, O.Ser_index)
 									kv.KVS[O.Shard][O.Key] = O.Value
 								}
 							} else if O.Operate == "Put" {
 
 								select {
 								case kv.putAdd <- COMD{index: m.CommandIndex, O: O}:
-									// DEBUG(dLog, "S%d G%d write putAdd in(%v)\n", kv.me, kv.gid, m.CommandIndex)
+									DEBUG(dLog, "S%d G%d write putAdd in(%v)\n", kv.me, kv.gid, m.CommandIndex)
 								default:
-									// DEBUG(dLog, "S%d G%d can not write putAdd in(%v)\n", kv.me, kv.gid, m.CommandIndex)
+									DEBUG(dLog, "S%d G%d can not write putAdd in(%v)\n", kv.me, kv.gid, m.CommandIndex)
 								}
 
 								_, ok := kv.KVS[O.Shard][O.Key]
 								if ok {
-									// DEBUG(dLog, "S%d G%d AAAAAAA put key(%v) from %v to %v from(%v)\n", kv.me, kv.gid, O.Key, kv.KVS[O.Shard][O.Key], O.Value, O.Ser_index)
+									DEBUG(dLog, "S%d G%d AAAAAAA put key(%v) from %v to %v from(%v)\n", kv.me, kv.gid, O.Key, kv.KVS[O.Shard][O.Key], O.Value, O.Ser_index)
 									kv.KVS[O.Shard][O.Key] = O.Value
 								} else {
-									// DEBUG(dLog, "S%d G%d AAAAAAA put key(%v) from nil to %v from(%v)\n", kv.me, kv.gid, O.Key, O.Value, O.Ser_index)
+									DEBUG(dLog, "S%d G%d AAAAAAA put key(%v) from nil to %v from(%v)\n", kv.me, kv.gid, O.Key, O.Value, O.Ser_index)
 									kv.KVS[O.Shard][O.Key] = O.Value
 								}
 							} else if O.Operate == "Get" {
 
 								select {
 								case kv.get <- COMD{index: m.CommandIndex, O: O}:
-									// DEBUG(dLog, "S%d G%d write get in(%v)\n", kv.me, kv.gid, m.CommandIndex)
+									DEBUG(dLog, "S%d G%d write get in(%v)\n", kv.me, kv.gid, m.CommandIndex)
 								default:
-									// DEBUG(dLog, "S%d G%d can not write get in(%v)\n", kv.me, kv.gid, m.CommandIndex)
+									DEBUG(dLog, "S%d G%d can not write get in(%v)\n", kv.me, kv.gid, m.CommandIndex)
 								}
 							}
+							// else if O.Operate == "Config" {
+							// 	kv.KVSMAP[O.Shard] = O.Num
+							// 	kv.manageshards[O.Shard] = true
+							// 	for k, v := range O.KVS {
+							// 		kv.KVS[O.Shard][k] = v
+							// 	}
+							// 	DEBUG(dInfo, "S%d G%d Update Config KVS[%v] to %v\n", kv.me, kv.gid, O.Shard, O.KVS)
+							// 	DEBUG(dInfo, "S%d G%d Update Config Manageshards is %v\n", kv.me, kv.gid, kv.manageshards)
+							// 	DEBUG(dInfo, "S%d G%d Update Config KVSMAP(%v)\n", kv.me, kv.gid, kv.KVSMAP)
+							// }
 						} else if kv.CDM[O.Cli_index] == O.Cmd_index {
-							// DEBUG(dLog2, "S%d G%d this cmd had done, the log had two update applyindex %v to %v\n", kv.me, kv.gid, kv.applyindex, m.CommandIndex)
+							DEBUG(dLog2, "S%d G%d this cmd had done, the log had two update applyindex %v to %v\n", kv.me, kv.gid, kv.applyindex, m.CommandIndex)
 							kv.applyindex = m.CommandIndex
 						}
+
 					} else if kv.applyindex+1 < m.CommandIndex {
-						// DEBUG(dWarn, "S%d G%d the applyindex + 1 (%v) < commandindex(%v)\n", kv.me, kv.gid, kv.applyindex, m.CommandIndex)
+						DEBUG(dWarn, "S%d G%d the applyindex + 1 (%v) < commandindex(%v)\n", kv.me, kv.gid, kv.applyindex, m.CommandIndex)
 						// kv.applyindex = m.CommandIndex
+					}
+					if maxraftstate > 0 {
+						kv.CheckSnap()
 					}
 					kv.mu.Unlock()
 					count++
-					if NUMS > 0 && count == NUMS {
-						count = 0
-						// DEBUG(dSnap, "S%d G%d the cmd had achieve %v\n", kv.me, kv.gid, NUMS)
-						kv.CheckSnap()
-						// time.Sleep(time.Microsecond * 20)
-					}
+					// if NUMS > 0 && count == NUMS {
+					// 	count = 0
+					// 	DEBUG(dSnap, "S%d G%d the cmd had achieve %v\n", kv.me, kv.gid, NUMS)
+					// 	kv.CheckSnap()
+					// }
 				} else { //read snapshot
 					r := bytes.NewBuffer(m.Snapshot)
 					d := labgob.NewDecoder(r)
-					// DEBUG(dSnap, "S%d G%d the snapshot applied\n", kv.me, kv.gid)
+					DEBUG(dSnap, "S%d G%d the snapshot applied\n", kv.me, kv.gid)
 					var S SnapShot
 					kv.mu.Lock()
 					if d.Decode(&S) != nil {
-						// DEBUG(dSnap, "S%d G%d labgob fail\n", kv.me, kv.gid)
+						DEBUG(dSnap, "S%d G%d labgob fail\n", kv.me, kv.gid)
 						kv.mu.Unlock()
 					} else {
 						kv.CDM = S.Cdm
 						kv.CSM = S.Csm
 						kv.KVS = S.Kvs
+						kv.config = S.Config
+						kv.manageshards = S.ManageShards
+						kv.KVSMAP = S.KVSMAP
 						DEBUG(dSnap, "S%d G%d recover by SnapShot update applyindex(%v) to %v the kvs is %v\n", kv.me, kv.gid, kv.applyindex, S.Apliedindex, kv.KVS)
 						kv.applyindex = S.Apliedindex
 						kv.mu.Unlock()
@@ -779,14 +880,14 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 
 				}
 
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(TIMEOUT * time.Microsecond):
 				O := Op{
 					Ser_index: int64(kv.me),
 					Cli_index: -1,
 					Cmd_index: -1,
 					Operate:   "TIMEOUT",
 				}
-				
+
 				kv.rf.Start(O)
 			}
 			// } else {
