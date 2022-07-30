@@ -67,6 +67,11 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 		reply.Err = OK
 		sc.mu.Unlock()
 		return
+	} else if okk1 && in1+1 != args.OIndex{
+		reply.Err = "TIME OUT"
+		DEBUG(dLog, "S%d the cmd_index is late\n", sc.me)
+		sc.mu.Unlock()
+		return
 	} else if !okk1 {
 		sc.CDM[args.CIndex] = 0
 	}
@@ -98,13 +103,13 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 	if !isLeader {
 		reply.WrongLeader = true
 	} else {
-		OS := sc.rf.Find(index)
-		if OS == nil {
-			DEBUG(dLeader, "S%d do not have this log(%v)\n", sc.me, O)
-		} else {
-			P := OS.(Op)
-			DEBUG(dLeader, "S%d have this log(%v) in raft\n", sc.me, P)
-		}
+		// OS := sc.rf.Find(index)
+		// if OS == nil {
+		// 	DEBUG(dLeader, "S%d do not have this log(%v)\n", sc.me, O)
+		// } else {
+		// 	P := OS.(Op)
+		// 	DEBUG(dLeader, "S%d have this log(%v) in raft\n", sc.me, P)
+		// }
 
 		sc.mu.Lock()
 		lastindex, ok := sc.CSM[args.CIndex]
@@ -161,6 +166,11 @@ func (sc *ShardCtrler) Leave(args *LeaveArgs, reply *LeaveReply) {
 		reply.Err = OK
 		sc.mu.Unlock()
 		return
+	} else if okk1 && in1+1 != args.OIndex{
+		reply.Err = "TIME OUT"
+		DEBUG(dLog, "S%d the cmd_index is late\n", sc.me)
+		sc.mu.Unlock()
+		return
 	} else if !okk1 {
 		sc.CDM[args.CIndex] = 0
 	}
@@ -192,13 +202,13 @@ func (sc *ShardCtrler) Leave(args *LeaveArgs, reply *LeaveReply) {
 	if !isLeader {
 		reply.WrongLeader = true
 	} else {
-		OS := sc.rf.Find(index)
-		if OS == nil {
-			DEBUG(dLeader, "S%d do not have this log(%v)\n", sc.me, O)
-		} else {
-			P := OS.(Op)
-			DEBUG(dLeader, "S%d have this log(%v) in raft\n", sc.me, P)
-		}
+		// OS := sc.rf.Find(index)
+		// if OS == nil {
+		// 	DEBUG(dLeader, "S%d do not have this log(%v)\n", sc.me, O)
+		// } else {
+		// 	P := OS.(Op)
+		// 	DEBUG(dLeader, "S%d have this log(%v) in raft\n", sc.me, P)
+		// }
 
 		sc.mu.Lock()
 		lastindex, ok := sc.CSM[args.CIndex]
@@ -254,6 +264,11 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 		reply.Err = OK
 		sc.mu.Unlock()
 		return
+	} else if okk1 && in1+1 != args.OIndex{
+		reply.Err = "TIME OUT"
+		DEBUG(dLog, "S%d the cmd_index is late\n", sc.me)
+		sc.mu.Unlock()
+		return
 	} else if !okk1 {
 		sc.CDM[args.CIndex] = 0
 	}
@@ -286,13 +301,13 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 	if !isLeader {
 		reply.WrongLeader = true
 	} else {
-		OS := sc.rf.Find(index)
-		if OS == nil {
-			DEBUG(dLeader, "S%d do not have this log(%v) index is %v\n", sc.me, O, index)
-		} else {
-			P := OS.(Op)
-			DEBUG(dLeader, "S%d have this log(%v) in raft index is %v\n", sc.me, P, index)
-		}
+		// OS := sc.rf.Find(index)
+		// if OS == nil {
+		// 	DEBUG(dLeader, "S%d do not have this log(%v) index is %v\n", sc.me, O, index)
+		// } else {
+		// 	P := OS.(Op)
+		// 	DEBUG(dLeader, "S%d have this log(%v) in raft index is %v\n", sc.me, P, index)
+		// }
 
 		sc.mu.Lock()
 		lastindex, ok := sc.CSM[args.CIndex]
@@ -353,6 +368,11 @@ func (sc *ShardCtrler) Query(args *QueryArgs, reply *QueryReply) {
 		}
 		sc.mu.Unlock()
 		return
+	}else if okk1 && in1+1 != args.OIndex{
+		reply.Err = "TIME OUT"
+		DEBUG(dLog, "S%d the cmd_index is late\n", sc.me)
+		sc.mu.Unlock()
+		return
 	} else if !okk1 {
 		sc.CDM[args.CIndex] = 0
 	}
@@ -384,13 +404,13 @@ func (sc *ShardCtrler) Query(args *QueryArgs, reply *QueryReply) {
 	if !isLeader {
 		reply.WrongLeader = true
 	} else {
-		OS := sc.rf.Find(index)
-		if OS == nil {
-			DEBUG(dLeader, "S%d do not have this log(%v)\n", sc.me, O)
-		} else {
-			P := OS.(Op)
-			DEBUG(dLeader, "S%d have this log(%v) in raft\n", sc.me, P)
-		}
+		// OS := sc.rf.Find(index)
+		// if OS == nil {
+		// 	DEBUG(dLeader, "S%d do not have this log(%v)\n", sc.me, O)
+		// } else {
+		// 	P := OS.(Op)
+		// 	DEBUG(dLeader, "S%d have this log(%v) in raft\n", sc.me, P)
+		// }
 
 		sc.mu.Lock()
 		lastindex, ok := sc.CSM[args.CIndex]
@@ -494,7 +514,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister)
 						if O.Cli_index == -1 {
 							DEBUG(dLog, "S%d for TIMEOUT update applyindex %v to %v\n", sc.me, sc.applyindex, m.CommandIndex)
 							sc.applyindex = m.CommandIndex
-						} else if sc.CDM[O.Cli_index] < O.Cmd_index {
+						} else if sc.CDM[O.Cli_index]+1 == O.Cmd_index {
 							DEBUG(dLeader, "S%d update CDM[%v] from %v to %v update applyindex %v to %v\n", sc.me, O.Cli_index, sc.CDM[O.Cli_index], O.Cmd_index, sc.applyindex, m.CommandIndex)
 							sc.applyindex = m.CommandIndex
 
