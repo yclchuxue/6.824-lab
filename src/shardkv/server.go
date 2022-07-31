@@ -383,7 +383,7 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 
 	if oldconfig.Shards[args.Shard] != kv.gid {
 		reply.Err = ErrWrongGroup
-		DEBUG(dLog, "S%d G%d shard(%v) is not in this Group oldconfig(%v)\n", kv.me, kv.gid, args.Shard, oldconfig)
+		DEBUG(dLog, "S%d G%d shard(%v) this is a never print log config(%v)\n", kv.me, kv.gid, args.Shard, oldconfig)
 		return
 	}
 
@@ -397,6 +397,7 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 	}
 
 	index, _, isLeader := kv.rf.Start(O)
+
 	if !isLeader {
 		reply.Err = ErrWrongLeader
 		DEBUG(dLog, "S%d G%d this server is not leader\n", kv.me, kv.gid)
@@ -420,9 +421,14 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 					reply.Err = OK
 					return
 				} else {
-					DEBUG(dLog, "S%d G%d this Group not get this kvs KVSMAP(%v) shard(%d) args.num(%v) index%v\n", kv.me, kv.gid, kv.KVSMAP, args.Shard, args.Num, index)
-					reply.Err = ErrWrongGroup
-					return
+					DEBUG(dLog, "S%d G%d this group kvs have not get over KVSMAP(%v) shard(%d) args.num(%v) index%v\n", kv.me, kv.gid, kv.KVSMAP, args.Shard, args.Num, index)
+					_, _, isLeader := kv.rf.Start(O)
+					if !isLeader {
+						reply.Err = ErrWrongLeader
+						DEBUG(dLog, "S%d G%d this server is not leader\n", kv.me, kv.gid)
+						return
+					}
+					continue
 				}
 			}
 
@@ -459,16 +465,11 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 	for {
 		kv.mu.Lock()
 		if num == 0 {
-			kvs := make(map[string]string)
-			for k, v := range kv.KVS[shard] {
-				kvs[k] = v
-			}
 			O := Op{
 				Ser_index: int64(kv.me),
 				Gro_index: int64(kv.gid),
-				Cli_index: -2,
-				Operate:   "Config",
-				KVS:       kvs,
+				Cli_index: -4,
+				Operate:   "OwnCon",
 				Shard:     shard,
 				Num:       The_Num,
 			}
@@ -477,7 +478,7 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 			DEBUG(dInfo, "S%d G%d Start CON old num = 0 The_num is %v %v\n", kv.me, kv.gid, The_Num, Leader)
 			return
 		}
-
+		DEBUG(dLog, "S%d G%d oldconfig.Shard[%v](%v)\n", kv.me, kv.gid, shard, oldconfig.Shards[shard])
 		if oldconfig.Shards[shard] == kv.gid {
 			if kv.KVSMAP[shard] == num {
 				O := Op{
@@ -493,8 +494,9 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 				DEBUG(dInfo, "S%d G%d Start num(%v) == KVSMAP[%v] %v\n", kv.me, kv.gid, num, shard, Leader)
 				return
 			} else {
+				DEBUG(dLog, "S%d G%d num from %v to %v\n", kv.me, kv.gid, num, num-1)
 				num--
-			}
+			}	
 		}else{
 			kv.mu.Unlock()
 			break
@@ -504,32 +506,24 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 
 	try_num := 3
 	for {
-		// kv.mu.Lock()
+
 		args.Num = num
 		gid := oldconfig.Shards[shard]
 		DEBUG(dLog, "S%d G%d shard(%d) num(%d) the oldconfig is %v\n", kv.me, kv.gid, shard, num, oldconfig)
 		if servers, ok := oldconfig.Groups[gid]; ok {
-			// kv.mu.Unlock()
+
 			DEBUG(dLog, "S%d G%d need send to get shard num is %d\n", kv.me, kv.gid, num)
 
 			for si := 0; si < len(servers); {
-				// kv.mu.Lock()
+
 				srv := kv.make_end(servers[si])
 				var reply GetConfigReply
 				DEBUG(dLog, "S%d G%d send to S%v G%d get shard(%v) num(%v) The_num(%v)\n", kv.me, kv.gid, si, gid, shard, num, The_Num)
-				// kv.mu.Unlock()
-
 				ok := srv.Call("ShardKV.GetConfig", &args, &reply)
 
 				if ok {
 					try_num = 3
 				}
-
-				// if The_Num != kv.config.Num {
-				// 	DEBUG(dLog, "S%d G%d the_num(%v) config.Num(%v) has out-of-date\n", kv.me, kv.gid, The_Num, kv.config.Num)
-				// 	return
-				// }
-
 				if ok && reply.Err == OK {
 					DEBUG(dLog, "S%d G%d success get shard%v kvs(%v)\n", kv.me, kv.gid, shard, reply.Kvs)
 					kvs := make(map[string]string)
@@ -549,65 +543,6 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 					_, _, Leader := kv.rf.Start(O)
 					DEBUG(dInfo, "S%d G%d Start CON success get shard%v kvs %v\n", kv.me, kv.gid, shard, Leader)
 					return
-				} else if ok && reply.Err == ErrWrongGroup {
-					DEBUG(dLog, "S%d G%d the Group ERROR num(%v) shard(%v)\n", kv.me, kv.gid, num, shard)
-
-					num--
-					DEBUG(dLog, "S%d G%d nextnum is %d shard(%v)\n", kv.me, kv.gid, num, shard)
-
-					for {
-						if num > 0 {
-
-							oldconfig = kv.mck.Query(num)
-							if oldconfig.Shards[shard] == kv.gid {
-								kv.mu.Lock()
-								if kv.KVSMAP[shard] == oldconfig.Num {
-									O := Op{
-										Ser_index: int64(kv.me),
-										Gro_index: int64(kv.gid),
-										Cli_index: -4,
-										Operate:   "OwnCon",
-										Shard:     shard,
-										Num:       The_Num,
-									}
-									kv.mu.Unlock()
-									_, _, Leader := kv.rf.Start(O)
-									DEBUG(dInfo, "S%d G%d Start num(%v) == KVSMAP[%v] %v\n", kv.me, kv.gid, num, shard, Leader)
-									return
-								}
-								kv.mu.Unlock()
-								num--
-							} else {
-								DEBUG(dLog, "S%d G%d nextnum1 is %d shard(%v)\n", kv.me, kv.gid, num, shard)
-								break
-							}
-						}
-						if num == 0 {
-							// kv.manageshards[shard] = true
-							// kv.KVSMAP[shard] = The_Num
-							DEBUG(dLog, "S%d G%d num is 0\n", kv.me, kv.gid)
-							kvs := make(map[string]string)
-							kv.mu.Lock()
-							for k, v := range kv.KVS[shard] {
-								kvs[k] = v
-							}
-							O := Op{
-								Ser_index: int64(kv.me),
-								Cli_index: -2,
-								Gro_index: int64(kv.gid),
-								Operate:   "Config",
-								KVS:       kvs,
-								Shard:     shard,
-								Num:       The_Num,
-							}
-							kv.mu.Unlock()
-							_, _, Leader := kv.rf.Start(O)
-							DEBUG(dInfo, "S%d G%d Start CON old num = 0 %v\n", kv.me, kv.gid, Leader)
-							return
-						}
-					}
-
-					break
 				} else if ok && reply.Err == ErrWrongLeader {
 					DEBUG(dLog, "S%d G%d the S%v is not leader\n", kv.me, si, kv.gid)
 					si++
@@ -626,11 +561,9 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 					}
 				}
 
-				// ... not ok, or ErrWrongLeader
 			}
 		} else {
 			fmt.Println("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA num is", num)
-			// kv.mu.Unlock()
 			break
 		}
 		time.Sleep(100 * time.Millisecond)

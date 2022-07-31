@@ -90,6 +90,7 @@ func (ck *Clerk) Get(key string) string {
 		shard := key2shard(key)
 		gid := ck.config.Shards[shard]
 		args.Shard = shard
+		args.Num = ck.config.Num
 		if servers, ok := ck.config.Groups[gid]; ok {
 			// try each server for the shard.
 			for si := ck.leader; si < len(servers); {
@@ -106,10 +107,10 @@ func (ck *Clerk) Get(key string) string {
 					DEBUG(dClient, "C%d success Get key(%v) value(%v) the cmd_index(%v)\n", ck.cli_index, args.Key, reply.Value, ck.cmd_index)
 					return reply.Value
 				}else if ok && (reply.Err == ErrWrongGroup) {
-					DEBUG(dClient, "C%d the Group ERROR\n", ck.cli_index)
+					// DEBUG(dClient, "C%d the Group ERROR\n", ck.cli_index)
 					break
 				}else if ok && reply.Err == ErrWrongLeader {
-					DEBUG(dClient, "C%d the S%v is not leader\n", ck.cli_index, si)
+					// DEBUG(dClient, "C%d the S%v is not leader\n", ck.cli_index, si)
 					si++
 					if si == len(servers) {
 						si = 0
@@ -117,7 +118,7 @@ func (ck *Clerk) Get(key string) string {
 					// time.Sleep(1000 * time.Microsecond)
 				}else if !ok || reply.Err == ErrTimeOut{
 					// time.Sleep(1000 * time.Microsecond)
-					DEBUG(dClient, "C%d the timeout\n", ck.cli_index)
+					// DEBUG(dClient, "C%d the timeout\n", ck.cli_index)
 					if try_num > 0{
 						try_num--
 					}else{
@@ -130,7 +131,7 @@ func (ck *Clerk) Get(key string) string {
 				// ... not ok, or ErrWrongLeader
 			}
 		}else{
-			DEBUG(dClient, "C%d get gid(%v) is not int Groups(%v)\n", ck.cli_index, gid, ck.config.Groups)
+			// DEBUG(dClient, "C%d get gid(%v) is not int Groups(%v)\n", ck.cli_index, gid, ck.config.Groups)
 		}
 		time.Sleep(500 * time.Microsecond)
 		// ask controler for the latest configuration.
@@ -159,6 +160,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		shard := key2shard(key)
 		gid := ck.config.Shards[shard]
 		args.Shard = shard
+		args.Num = ck.config.Num
 		if servers, ok := ck.config.Groups[gid]; ok {
 			for si := ck.leader; si < len(servers); {
 				srv := ck.make_end(servers[si])
@@ -174,17 +176,17 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 					DEBUG(dClient, "C%d success the cmd_index(%v)\n", ck.cli_index, ck.cmd_index)
 					return
 				}else if ok && reply.Err == ErrWrongGroup {
-					DEBUG(dClient, "C%d the Group ERROR\n", ck.cli_index)
+					// DEBUG(dClient, "C%d the Group ERROR\n", ck.cli_index)
 					break
 				}else if ok && reply.Err == ErrWrongLeader {
-					DEBUG(dClient, "C%d the S%v is not leader\n", ck.cli_index, si)
+					// DEBUG(dClient, "C%d the S%v is not leader\n", ck.cli_index, si)
 					si++
 					if si == len(servers) {
 						si = 0
 						// time.Sleep(100 * time.Microsecond)
 					}
 				}else if !ok || reply.Err == ErrTimeOut{
-					DEBUG(dClient, "C%d the TIMEOUT\n", ck.cli_index)
+					// DEBUG(dClient, "C%d the TIMEOUT\n", ck.cli_index)
 					if try_num > 0{
 						try_num--
 					}else{
@@ -197,7 +199,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 				// ... not ok, or ErrWrongLeader
 			}
 		}else{
-			DEBUG(dClient, "C%d putappend gid(%v) is not int Groups(%v)\n", ck.cli_index, gid, ck.config.Groups)
+			// DEBUG(dClient, "C%d putappend gid(%v) is not int Groups(%v)\n", ck.cli_index, gid, ck.config.Groups)
 		}
 		time.Sleep(500 * time.Microsecond)
 		// ask controler for the latest configuration.
