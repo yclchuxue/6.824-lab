@@ -49,9 +49,10 @@ type ShardKV struct {
 	maxraftstate int // snapshot if log grows this big
 	mck          *shardctrler.Clerk
 
-	putAdd chan COMD
-	get    chan COMD
-	getkvs chan COMD
+	putAdd     chan COMD
+	get        chan COMD
+	getkvs     chan COMD
+	num_change chan COMD
 
 	// Your definitions here.
 	KVS []map[string]string
@@ -89,8 +90,16 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 		DEBUG(dLog, "S%d G%d not have this shard(%v) KVSMAP(%v) config.NUM(%v) args.Num(%v)\n", kv.me, kv.gid, args.Shard, kv.KVSMAP[args.Shard], kv.config.Num, args.Num)
 		reply.Err = ErrWrongGroup
 		kv.mu.Unlock()
-		time.Sleep(200 * time.Millisecond)
-		return
+		select {
+		case out := <-kv.num_change:
+			if out.num == args.Num {
+				return
+			}
+		case <-time.After(100 * time.Millisecond):
+			return
+		}
+		// time.Sleep(200*time.Millisecond)
+		// return
 	}
 
 	if kv.applyindex == 0 {
@@ -220,8 +229,16 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		DEBUG(dLog, "S%d G%d not have this shard(%v) KVSMAP(%v) config.NUM(%v) args.Num(%v)\n", kv.me, kv.gid, args.Shard, kv.KVSMAP[args.Shard], kv.config.Num, args.Num)
 		reply.Err = ErrWrongGroup
 		kv.mu.Unlock()
-		time.Sleep(200 * time.Millisecond)
-		return
+		select {
+		case out := <-kv.num_change:
+			if out.num == args.Num {
+				return
+			}
+		case <-time.After(100 * time.Millisecond):
+			return
+		}
+		// time.Sleep(200*time.Millisecond)
+		// return
 	}
 
 	if kv.applyindex == 0 {
@@ -650,10 +667,9 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 
 func (kv *ShardKV) CheckConfig() {
 
+	kv.mu.Lock()
 	_, isLeader := kv.rf.GetState()
 	newconfig := kv.mck.Query(-1)
-
-	kv.mu.Lock()
 
 	if kv.config.Num != newconfig.Num && isLeader {
 		// DEBUG(dLog, "S%d G%d the config.num is %v != config1.num is %v\n", kv.me, kv.gid, kv.config.Num, newconfig.Num)
@@ -668,21 +684,23 @@ func (kv *ShardKV) CheckConfig() {
 	kv.config = newconfig
 	num := kv.config.Num
 	gid := kv.gid
-	kv.mu.Unlock()
 
 	if !isLeader {
+		kv.mu.Unlock()
 		return
 	}
 
 	for i, it := range newconfig.Shards {
 
 		if it == gid {
-			DEBUG(dLog, "S%d G%d add a shard(%d) num(%v)\n", kv.me, kv.gid, i, num)
+			if kv.KVSMAP[i] != newconfig.Num {
+				DEBUG(dLog, "S%d G%d add a shard(%d) num(%v)\n", kv.me, kv.gid, i, num)
 
-			go kv.SendToGetConfig(num, i)
+				go kv.SendToGetConfig(num, i)
+			}
 		}
 	}
-
+	kv.mu.Unlock()
 }
 
 //
@@ -734,6 +752,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	kv.get = make(chan COMD)
 	kv.putAdd = make(chan COMD)
 	kv.getkvs = make(chan COMD)
+	kv.num_change = make(chan COMD)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 
 	// kv.KVS = []map[string]string
@@ -748,6 +767,8 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 		kv.KVS = append(kv.KVS, make(map[string]string))
 	}
 	//kv.GetManageMap()
+
+	kv.CheckConfig()
 
 	DEBUG(dSnap, "S%d G%v ????????? update applyindex to %v the config is %v\n", kv.me, kv.gid, kv.applyindex, kv.config)
 	// var NUMS int
@@ -826,6 +847,16 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 								DEBUG(dInfo, "S%d G%d BBBB Update Config KVS[%v] to %v\n", kv.me, kv.gid, O.Shard, O.KVS)
 								DEBUG(dInfo, "S%d G%d Update Config KVSMAP(%v)\n", kv.me, kv.gid, kv.KVSMAP)
 							}
+
+							// select {
+							// case kv.num_change <- COMD{
+							// 	num: kv.KVSMAP[O.Shard],
+							// }:
+							// 	DEBUG(dLog, "S%d G%d write num_change in(%v)\n", kv.me, kv.gid, m.CommandIndex)
+							// default:
+							// 	DEBUG(dLog, "S%d G%d can not write num_change in(%v)\n", kv.me, kv.gid, m.CommandIndex)
+							// }
+
 							// ti := time.Since(start).Milliseconds()
 							// DEBUG(dLog2, "S%d G%d -2 BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB%d\n", kv.me, kv.gid, ti)
 
@@ -876,6 +907,14 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 								DEBUG(dInfo, "S%d G%d CCCC Update Config KVS[%v] to %v\n", kv.me, kv.gid, O.Shard, kv.KVS[O.Shard])
 								DEBUG(dInfo, "S%d G%d Update Config KVSMAP(%v)\n", kv.me, kv.gid, kv.KVSMAP)
 							}
+							// select {
+							// case kv.num_change <- COMD{
+							// 	num: kv.KVSMAP[O.Shard],
+							// }:
+							// 	DEBUG(dLog, "S%d G%d write num_change in(%v)\n", kv.me, kv.gid, m.CommandIndex)
+							// default:
+							// 	DEBUG(dLog, "S%d G%d can not write num_change in(%v)\n", kv.me, kv.gid, m.CommandIndex)
+							// }
 							// ti := time.Since(start).Milliseconds()
 							// DEBUG(dLog2, "S%d G%d -4 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC%d\n", kv.me, kv.gid, ti)
 
@@ -949,7 +988,6 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 					kv.mu.Lock()
 					if d.Decode(&S) != nil {
 						DEBUG(dSnap, "S%d G%d labgob fail\n", kv.me, kv.gid)
-						kv.mu.Unlock()
 					} else {
 						kv.CDM = S.Cdm
 						kv.CSM = S.Csm
@@ -958,10 +996,9 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 						kv.KVSMAP = S.KVSMAP
 						DEBUG(dSnap, "S%d G%d recover by SnapShot update applyindex(%v) to %v the kvs is %v\n", kv.me, kv.gid, kv.applyindex, S.Apliedindex, kv.KVS)
 						kv.applyindex = S.Apliedindex
-						kv.mu.Unlock()
 						kv.CheckConfig()
 					}
-
+					kv.mu.Unlock()
 				}
 
 			case <-time.After(TIMEOUT * 100 * time.Microsecond):
