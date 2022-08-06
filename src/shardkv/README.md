@@ -17,6 +17,12 @@
 
     G1 在 num1 时管理 shard1，被重启后 manageshards 和 KVSMAP 清空， config 更新到 num2， G1 会向 num1 时的自己请求数据，
 
+    不同的 Group 之间获取 kvs 时直接使用 rpc 获取到 kvs，但这种操作会破坏掉线性化，如果刚刚接收一个快照，快照后的日志并未来得及处理就收到其他 Group 的请求，这时候获取到的 kvs 是错误的，使用要将 Group 之间的操作也写入到日志中，这样的化就保证了线性化。
+
+    迁移后若操作已完成，但client不知道，会重新发生请求到另一个server，会导致重复执行，
+
+    KVSMAP【8】 = 4， 若 num = 5 时 shard 8 的 kvs 而config更新，num = 6， 当num = 6 的rpc的num减到小于4时，num=5的rpc成功则会导致一些错误。
+
 ## 数据恢复
     当 server 恢复数据时，通过快照和日志将 KVS 恢复，如果不保存 config 等信息，则会导致需要重新获取 config 而 KVSMAP 中缺少对每个 shard 的 num 的保存。 导致需要向其他 group 获取分片的 KVS 失败，一直到 num 为 0。虽然这样似乎也可以，但在数据恢复时会浪费很多时间。
 

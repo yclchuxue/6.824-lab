@@ -88,6 +88,7 @@ func (ck *Clerk) Get(key string) string {
 	try_num := 3
 	// DEBUG(dClient, "C%d getkey(%v)\n", ck.cli_index, key)
 	for {
+		ck.config = ck.sm.Query(-1)
 		shard := key2shard(key)
 		ck.cmd_index[shard]++
 		args.OIndex = ck.cmd_index[shard]
@@ -99,7 +100,7 @@ func (ck *Clerk) Get(key string) string {
 			for si := ck.leader; si < len(servers); {
 				srv := ck.make_end(servers[si])
 				var reply GetReply
-				DEBUG(dClient, "C%d send to S%v G%v Get key(%v) the cmd_index(%v) shard(%v)\n", ck.cli_index, si, gid, args.Key, ck.cmd_index[shard], shard)
+				DEBUG(dClient, "C%d send to S%v G%v Get key(%v) the cmd_index(%v) shard(%v) num(%v)\n", ck.cli_index, si, gid, args.Key, ck.cmd_index[shard], shard, ck.config.Num)
 				ok := srv.Call("ShardKV.Get", &args, &reply)
 
 				if ok {
@@ -107,7 +108,7 @@ func (ck *Clerk) Get(key string) string {
 				}
 
 				if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
-					DEBUG(dClient, "C%d success Get key(%v) value(%v) the cmd_index(%v) shard(%v) from S%v G%v\n", ck.cli_index, args.Key, reply.Value, ck.cmd_index, shard, si, gid)
+					DEBUG(dClient, "C%d success Get key(%v) value(%v) the cmd_index(%v) shard(%v) from S%v G%v\n", ck.cli_index, args.Key, reply.Value, ck.cmd_index[shard], shard, si, gid)
 					return reply.Value
 				}else if ok && (reply.Err == ErrWrongGroup) {
 					DEBUG(dClient, "C%d the S%d G%v Group ERROR\n", ck.cli_index, si, gid)
@@ -159,6 +160,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	try_num := 3
 
 	for {
+		ck.config = ck.sm.Query(-1)
 		shard := key2shard(key)
 		gid := ck.config.Shards[shard]
 		ck.cmd_index[shard]++
@@ -169,7 +171,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 			for si := ck.leader; si < len(servers); {
 				srv := ck.make_end(servers[si])
 				var reply PutAppendReply
-				DEBUG(dClient, "C%d send to S%v G%v %v key(%v) value(%v) the cmd_index(%v) shard(%v)\n", ck.cli_index, si, gid, args.Op, args.Key, args.Value, ck.cmd_index[shard], shard)
+				DEBUG(dClient, "C%d send to S%v G%v %v key(%v) value(%v) the cmd_index(%v) shard(%v) num(%v)\n", ck.cli_index, si, gid, args.Op, args.Key, args.Value, ck.cmd_index[shard], shard, ck.config.Num)
 				ok := srv.Call("ShardKV.PutAppend", &args, &reply)
 
 				if ok {
@@ -177,7 +179,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 				}
 
 				if ok && reply.Err == OK {
-					DEBUG(dClient, "C%d success the cmd_index(%v) shard(%v) from S%d G%d\n", ck.cli_index, ck.cmd_index, shard, si, gid)
+					DEBUG(dClient, "C%d success the cmd_index(%v) shard(%v) from S%d G%d\n", ck.cli_index, ck.cmd_index[shard], shard, si, gid)
 					return
 				}else if ok && reply.Err == ErrWrongGroup {
 					DEBUG(dClient, "C%d the S%d G%d Group ERROR\n", ck.cli_index, si, gid)
