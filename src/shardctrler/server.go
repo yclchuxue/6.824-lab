@@ -10,7 +10,7 @@ import (
 	"6.824/raft"
 )
 
-const TIMEOUT = 1000 * 1000 
+const TIMEOUT = 1000 * 1000
 
 type Op struct {
 	// Your data here.
@@ -44,6 +44,7 @@ type ShardCtrler struct {
 	join  chan COMD
 	leave chan COMD
 	move  chan COMD
+	queryall chan COMD
 
 	applyindex int
 
@@ -67,7 +68,7 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 		reply.Err = OK
 		sc.mu.Unlock()
 		return
-	} else if okk1 && in1+1 != args.OIndex{
+	} else if okk1 && in1+1 != args.OIndex {
 		reply.Err = "TIME OUT"
 		DEBUG(dLog, "S%d the cmd_index is late\n", sc.me)
 		sc.mu.Unlock()
@@ -123,7 +124,7 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 		for {
 			select {
 			case out := <-sc.join:
-				if index <= out.index  { // && out.O == O
+				if index <= out.index { // && out.O == O
 					sc.mu.Lock()
 					DEBUG(dLeader, "S%d index(%v) from(%v) index(%v) out.index(%v)\n", sc.me, index, sc.me, index, out.index)
 					reply.Err = OK
@@ -166,7 +167,7 @@ func (sc *ShardCtrler) Leave(args *LeaveArgs, reply *LeaveReply) {
 		reply.Err = OK
 		sc.mu.Unlock()
 		return
-	} else if okk1 && in1+1 != args.OIndex{
+	} else if okk1 && in1+1 != args.OIndex {
 		reply.Err = "TIME OUT"
 		DEBUG(dLog, "S%d the cmd_index is late\n", sc.me)
 		sc.mu.Unlock()
@@ -264,7 +265,7 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 		reply.Err = OK
 		sc.mu.Unlock()
 		return
-	} else if okk1 && in1+1 != args.OIndex{
+	} else if okk1 && in1+1 != args.OIndex {
 		reply.Err = "TIME OUT"
 		DEBUG(dLog, "S%d the cmd_index is late\n", sc.me)
 		sc.mu.Unlock()
@@ -281,7 +282,7 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 		Cmd_index: args.OIndex,
 		Operate:   "Move",
 		Gid:       args.GID,
-		Shard: 	   args.Shard,
+		Shard:     args.Shard,
 	}
 	sc.mu.Lock()
 	in2, okk2 := sc.CSM[args.CIndex]
@@ -368,7 +369,7 @@ func (sc *ShardCtrler) Query(args *QueryArgs, reply *QueryReply) {
 		}
 		sc.mu.Unlock()
 		return
-	}else if okk1 && in1+1 != args.OIndex{
+	} else if okk1 && in1+1 != args.OIndex {
 		reply.Err = "TIME OUT"
 		DEBUG(dLog, "S%d the cmd_index is late\n", sc.me)
 		sc.mu.Unlock()
@@ -424,15 +425,119 @@ func (sc *ShardCtrler) Query(args *QueryArgs, reply *QueryReply) {
 		for {
 			select {
 			case out := <-sc.query:
-				if index <= out.index { // 
+				if index <= out.index { //
 					sc.mu.Lock()
 					le := len(sc.configs)
 					DEBUG(dLeader, "S%d index(%v) from(%v) index(%v) out.index(%v) the num is %v le is %v\n", sc.me, index, sc.me, index, out.index, args.Num, le)
-					if args.Num >= 0 && args.Num <  le{
+					if args.Num >= 0 && args.Num < le {
 						reply.Config = sc.configs[args.Num]
 					} else {
 						reply.Config = sc.configs[le-1]
 					}
+					reply.Err = OK
+					sc.mu.Unlock()
+					return
+				}
+
+			case <-time.After(TIMEOUT * time.Microsecond):
+				sc.mu.Lock()
+				DEBUG(dLeader, "S%d is time out\n", sc.me)
+				reply.Err = "TIME OUT"
+				if _, isLeader := sc.rf.GetState(); !isLeader {
+					reply.WrongLeader = true
+					// reply.Index = index
+					sc.CSM[args.CIndex] = lastindex
+				}
+				sc.mu.Unlock()
+				return
+
+			}
+		}
+	}
+
+}
+
+func (sc *ShardCtrler) QueryAll(args *QueryAllArgs, reply *QueryAllReply) {
+	// Your code here.
+	reply.WrongLeader = false
+	_, isLeader := sc.rf.GetState()
+	if !isLeader {
+		reply.WrongLeader = true
+		return
+	}
+
+	sc.mu.Lock()
+	in1, okk1 := sc.CDM[args.CIndex]
+	DEBUG(dLeader, "S%d in1 is %v okk1 is %v\n", sc.me, in1, okk1)
+	if okk1 && in1 == args.OIndex {
+		reply.Err = OK
+		DEBUG(dLog, "S%d had done Query num = %v\n", sc.me, args.Num)
+
+		reply.Configs = append(reply.Configs, sc.configs...)
+		sc.mu.Unlock()
+		return
+	} else if okk1 && in1+1 != args.OIndex {
+		reply.Err = "TIME OUT"
+		DEBUG(dLog, "S%d the cmd_index is late\n", sc.me)
+		sc.mu.Unlock()
+		return
+	} else if !okk1 {
+		sc.CDM[args.CIndex] = 0
+	}
+	sc.mu.Unlock()
+
+	var index int
+	O := Op{
+		Ser_index: int64(sc.me),
+		Cli_index: args.CIndex,
+		Cmd_index: args.OIndex,
+		Operate:   "QueryAll",
+		Num:       args.Num,
+	}
+	sc.mu.Lock()
+	in2, okk2 := sc.CSM[args.CIndex]
+	if !okk2 {
+		sc.CSM[args.CIndex] = 0
+	}
+	sc.mu.Unlock()
+
+	if in2 == args.OIndex {
+		_, isLeader = sc.rf.GetState()
+		index = -1
+	} else {
+		index, _, isLeader = sc.rf.Start(O)
+		// reply.index = index
+	}
+
+	if !isLeader {
+		reply.WrongLeader = true
+	} else {
+		// OS := sc.rf.Find(index)
+		// if OS == nil {
+		// 	DEBUG(dLeader, "S%d do not have this log(%v)\n", sc.me, O)
+		// } else {
+		// 	P := OS.(Op)
+		// 	DEBUG(dLeader, "S%d have this log(%v) in raft\n", sc.me, P)
+		// }
+
+		sc.mu.Lock()
+		lastindex, ok := sc.CSM[args.CIndex]
+		if !ok {
+			sc.CSM[args.CIndex] = 0
+		}
+		sc.CSM[args.CIndex] = args.OIndex
+		sc.mu.Unlock()
+
+		DEBUG(dLeader, "S%d <-- C%v Query num is %v wait index(%v)\n", sc.me, args.CIndex, args.Num, index)
+		for {
+			select {
+			case out := <-sc.queryall:
+				if index <= out.index { //
+					sc.mu.Lock()
+					le := len(sc.configs)
+					DEBUG(dLeader, "S%d index(%v) from(%v) index(%v) out.index(%v) the num is %v le is %v\n", sc.me, index, sc.me, index, out.index, args.Num, le)
+					reply.Configs = append(reply.Configs, sc.configs...)
+
 					reply.Err = OK
 					sc.mu.Unlock()
 					return
@@ -493,6 +598,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister)
 	sc.leave = make(chan COMD)
 	sc.join = make(chan COMD)
 	sc.move = make(chan COMD)
+	sc.queryall = make(chan COMD)
 	// Your code here.
 
 	LOGinit()
@@ -549,6 +655,15 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister)
 									DEBUG(dLog, "S%d write query in(%v) the num is %v config is %v\n", sc.me, m.CommandIndex, O.Num, sc.configs[len(sc.configs)-1])
 								default:
 									DEBUG(dLog, "S%d can not write query in(%v) config is %v\n", sc.me, m.CommandIndex, sc.configs[len(sc.configs)-1])
+								}
+
+							} else if O.Operate == "QueryAll" {
+
+								select {
+								case sc.queryall <- COMD{index: m.CommandIndex, O: O}:
+									DEBUG(dLog, "S%d write queryall in(%v) the num is %v \n", sc.me, m.CommandIndex, O.Num)
+								default:
+									DEBUG(dLog, "S%d can not write queryall in(%v) \n", sc.me, m.CommandIndex)
 								}
 
 							} else if O.Operate == "Move" {

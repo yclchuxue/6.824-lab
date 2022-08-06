@@ -72,9 +72,45 @@ func (ck *Clerk) Query(num int) Config {
 		if i == len(ck.servers) {
 			i = 0
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(100 * time.Microsecond)
 	}
 	return Config{}
+}
+
+func (ck *Clerk) QueryAll(num int) []Config {
+	ck.mu.Lock()
+	args := &QueryAllArgs{}
+	ck.cmd_index++
+	// Your code here.
+	args.Num = num
+	args.CIndex = ck.cli_index
+	args.OIndex = ck.cmd_index
+	i := ck.leader
+	ck.mu.Unlock()
+	// try each known server.
+	for i < len(ck.servers) {
+		var reply QueryAllReply
+		//  DEBUG(dClient, "C%d send to %v Query num is %v cmd_index is %v\n", ck.cli_index, i, args.Num, ck.cmd_index)
+		
+		ok := ck.servers[i].Call("ShardCtrler.QueryAll", args, &reply)
+		
+		if ok && !reply.WrongLeader && reply.Err == OK{
+			ck.mu.Lock()
+			ck.leader = i
+			ck.mu.Unlock()
+
+			//  DEBUG(dClient, "C%d success Config is %v from S%v\n", ck.cli_index, reply.Config, i)
+			return reply.Configs
+		} else {
+			//  DEBUG(dClient, "C%d fail WrongLeader(%v) ERR(%v)\n", ck.cli_index, reply.WrongLeader, reply.Err)
+		}
+		i++
+		if i == len(ck.servers) {
+			i = 0
+		}
+		time.Sleep(100 * time.Microsecond)
+	}
+	return []Config{}
 }
 
 func (ck *Clerk) Join(servers map[int][]string) {
@@ -110,7 +146,7 @@ func (ck *Clerk) Join(servers map[int][]string) {
 			i = 0
 		}
 
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(100 * time.Microsecond)
 	}
 
 }
@@ -149,7 +185,7 @@ func (ck *Clerk) Leave(gids []int) {
 			i = 0
 		}
 
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(100 * time.Microsecond)
 	}
 
 }
@@ -189,7 +225,7 @@ func (ck *Clerk) Move(shard int, gid int) {
 			i = 0
 		}
 
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(100 * time.Microsecond)
 	}
 
 }

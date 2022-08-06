@@ -79,3 +79,15 @@ type QueryReply struct {
 	Err         Err
 	Config      Config
 }
+
+type QueryAllArgs struct {
+	Num int // desired config number
+	CIndex int64
+	OIndex int64
+}
+
+type QueryAllReply struct {
+	WrongLeader bool
+	Err         Err
+	Configs      []Config
+}
