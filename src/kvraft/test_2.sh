@@ -28,3 +28,5 @@ python3 ./dstest.py TestSnapshotRPC3B \
     # //ti := time.Since(start).Milliseconds()
 
 # scp -r 6.824-lab/ root@120.46.192.114:/home/yang/
+
+# ssh root@120.46.192.114
