@@ -69,10 +69,11 @@ type ShardKV struct {
 	CON map[int]shardctrler.Config
 
 	applyindex int
-	rpcindex   int
+	// rpcindex   int
 	Now_Num    int
 	config     shardctrler.Config
 	KVSMAP     map[int]int
+	KVSGET 	   map[int]int
 }
 
 type SnapShot struct {
@@ -81,6 +82,7 @@ type SnapShot struct {
 	Cdm         []map[int64]int64
 	KVSMAP      map[int]int
 	Config      shardctrler.Config
+	// Rpcindex    int
 	Apliedindex int
 }
 
@@ -384,6 +386,7 @@ func (kv *ShardKV) SendSnapShot() {
 		Cdm:         kv.CDM,
 		KVSMAP:      kv.KVSMAP,
 		Config:      kv.config,
+		// Rpcindex:    kv.rpcindex,
 		Apliedindex: kv.applyindex,
 	}
 	e.Encode(S)
@@ -501,7 +504,7 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 	for {
 		select {
 		case out := <-kv.getkvs:
-			DEBUG(dLeader, "S%d G%d read from get kvs index(%v) out.index(%v)\n", kv.me, kv.gid, index, out.index)
+			DEBUG(dLeader, "S%d G%d read from get kvs me.shard(%v) index(%v) out.index(%v)\n", kv.me, kv.gid, args.Shard, index, out.index)
 			if index == out.index {
 
 				if out.num >= args.Num {
@@ -531,16 +534,26 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 					continue
 				}
 			}
+			// else{
+			// 	select {
+			// 		case kv.getkvs <- out:
+			// 			DEBUG(dLog, "S%d G%d write index in(%v) read wrong\n", kv.me, kv.gid, out.index)
+			// 		default:
+			// 			DEBUG(dLog, "S%d G%d can not write index in(%v) read wrong\n", kv.me, kv.gid, out.index)
+			// 		}
+			// }
 
-		case <-time.After(100 * time.Millisecond):
-			DEBUG(dLog2, "S%d G%d long time shard(%v) num(%v) from S%d G%d have not get the out\n", kv.me, kv.gid, args.Shard, args.Num, args.SIndex, args.GIndex)
-			index, _, isLeader = kv.rf.Start(O)
-			if !isLeader {
-				reply.Err = ErrWrongLeader
-				DEBUG(dLog, "S%d G%d this server is not leader\n", kv.me, kv.gid)
-				return
-			}
-			continue
+			//超时可加入判断该请求是否过期
+
+			// case <-time.After(10000 * time.Millisecond):
+			// 	DEBUG(dLog2, "S%d G%d long time shard(%v) num(%v) from S%d G%d have not get the out\n", kv.me, kv.gid, args.Shard, args.Num, args.SIndex, args.GIndex)
+			// 	index, _, isLeader = kv.rf.Start(O)
+			// 	if !isLeader {
+			// 		reply.Err = ErrWrongLeader
+			// 		DEBUG(dLog, "S%d G%d this server is not leader\n", kv.me, kv.gid)
+			// 		return
+			// 	}
+			// 	continue
 		}
 	}
 
@@ -650,9 +663,11 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 					kv.StartOp(O)
 				}
 				return
-			} else {
+			} else if kv.KVSMAP[shard] < num {
 				DEBUG(dLog, "S%d G%d shard(%v) The_num(%v) KVSMAP(%v) num from %v to %v\n", kv.me, kv.gid, shard, The_Num, kv.KVSMAP[shard], num, num-1)
 				num--
+			}else if kv.KVSMAP[shard] > num && 1 == 0{ // 
+
 			}
 			kv.mu.Unlock()
 		} else {
@@ -693,7 +708,7 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 				kv.mu.Lock()
 				DEBUG(dLog, "S%d G%d lock 622\n", kv.me, kv.gid)
 				if kv.config.Num != The_Num {
-					DEBUG(dLog, "S%d G%d kv.config.num(%v) != The_num(%v)\n", kv.me, kv.gid, kv.config.Num, The_Num)
+					DEBUG(dLog, "S%d G%d shard(%v) kv.config.num(%v) != The_num(%v)\n", kv.me, kv.gid, shard, kv.config.Num, The_Num)
 					kv.mu.Unlock()
 					return
 				}
@@ -736,7 +751,9 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 						kv.StartOp(O)
 					}
 					return
-				} else if ok && reply.Err == ErrWrongGroup {
+				} else if ok && 1 == 0{   // 处理args.shard != reply.shard的情况
+
+				}else if ok && reply.Err == ErrWrongGroup {
 
 					// TNM[gid] = reply.The_num
 					KNM[gid] = reply.Kvs_num
@@ -802,7 +819,7 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 								num--
 							}
 							kv.mu.Unlock()
-						}else{
+						} else {
 							DEBUG(dLog2, "S%d G%d in KNM shard(%v) num(%v) gid(%v) KNM(%v)\n", kv.me, kv.gid, shard, num, gid, KNM)
 
 							kv.mu1.Lock()
@@ -814,7 +831,7 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 								oldconfig = kv.mck.Query(num)
 								go kv.AppendCON(oldconfig)
 							}
-	
+
 							gid = oldconfig.Shards[shard]
 							N2, okk2 := KNM[gid]
 							if okk2 && num > N2 {
@@ -823,7 +840,7 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 								break
 							}
 						}
-						
+
 					}
 					break
 
@@ -879,7 +896,7 @@ func (kv *ShardKV) AppendCON(config shardctrler.Config) {
 	}
 }
 
-func (kv *ShardKV) getallconfigs (configs []shardctrler.Config) {
+func (kv *ShardKV) getallconfigs(configs []shardctrler.Config) {
 	kv.mu1.Lock()
 	for i := 0; i < len(configs); i++ {
 		kv.CON[configs[i].Num] = configs[i]
@@ -900,10 +917,12 @@ func (kv *ShardKV) CheckConfig() {
 			DEBUG(dLog, "S%d G%d new config(%v)\n", kv.me, kv.gid, newconfig)
 		}
 		go kv.getallconfigs(configs)
-	} else if newconfig.Num == kv.rpcindex {
-		DEBUG(dLog, "S%d G%d num is not change and had send rpc\n", kv.me, kv.gid)
-		return
+		kv.KVSGET[newconfig.Num] = 0
 	}
+	// else if newconfig.Num == kv.rpcindex {
+	// 	DEBUG(dLog, "S%d G%d num is not change and had send rpc\n", kv.me, kv.gid)
+	// 	return
+	// }
 
 	kv.mu.Lock()
 	DEBUG(dLog, "S%d G%d lock 713 %v\n", kv.me, kv.gid, isLeader)
@@ -920,14 +939,15 @@ func (kv *ShardKV) CheckConfig() {
 	for i, it := range newconfig.Shards {
 
 		if it == gid {
-			if kv.KVSMAP[i] != newconfig.Num && kv.rpcindex != newconfig.Num { //
+			if kv.KVSMAP[i] != newconfig.Num && kv.KVSGET[newconfig.Num] == 0{ //&& kv.rpcindex != newconfig.Num
 				DEBUG(dLog, "S%d G%d add a shard(%d) num(%v)\n", kv.me, kv.gid, i, num)
 
 				go kv.SendToGetConfig(num, i)
 			}
 		}
 	}
-	kv.rpcindex = newconfig.Num
+	kv.KVSGET[newconfig.Num] = 1
+	// kv.rpcindex = newconfig.Num
 	kv.mu.Unlock()
 }
 
@@ -987,15 +1007,18 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	// kv.KVS = []map[string]string
 
 	kv.KVSMAP = make(map[int]int)
+	kv.KVSGET = make(map[int]int)
 	kv.mu = sync.Mutex{}
 	kv.mu1 = sync.Mutex{}
 	kv.applyindex = 0
-	kv.rpcindex = 0
+	Applyindex := 0
+	// kv.rpcindex = 0
 	kv.config = kv.mck.Query(-1)
 	kv.Now_Num = kv.config.Num
 	kv.CON[kv.config.Num] = kv.config
 	for i := range kv.config.Shards {
 		kv.KVSMAP[i] = 0
+		kv.KVSGET[i] = 0
 		kv.KVS = append(kv.KVS, make(map[string]string))
 		kv.CSM = append(kv.CSM, make(map[int64]int64))
 		kv.CDM = append(kv.CDM, make(map[int64]int64))
@@ -1137,18 +1160,21 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 										Cdm[k] = v
 									}
 
-									DEBUG(dLog, "S%d G%d do ret S%d G%d shard(%v) num(%v) kvs(%v)\n", kv.me, kv.gid, O.Ser_index, O.Gro_index, O.Shard, O.Num, Kvs)
-									select {
-									case kv.getkvs <- COMD{index: m.CommandIndex,
-										kvs:     Kvs,
-										csm:     Csm,
-										cdm:     Cdm,
-										num:     kv.KVSMAP[O.Shard],
-										The_num: kv.config.Num,
-									}:
-										DEBUG(dLog, "S%d G%d write getkvs in(%v)\n", kv.me, kv.gid, m.CommandIndex)
-									default:
-										DEBUG(dLog, "S%d G%d can not write getkvs in(%v)\n", kv.me, kv.gid, m.CommandIndex)
+									if Applyindex < kv.applyindex {
+										select {
+										case kv.getkvs <- COMD{index: m.CommandIndex,
+											kvs:     Kvs,
+											csm:     Csm,
+											cdm:     Cdm,
+											num:     kv.KVSMAP[O.Shard],
+											The_num: kv.config.Num,
+										}:
+											DEBUG(dLog, "S%d G%d do ret write S%d G%d shard(%v) num(%v) kvs(%v)\n", kv.me, kv.gid, O.Ser_index, O.Gro_index, O.Shard, O.Num, Kvs)
+											DEBUG(dLog, "S%d G%d write getkvs in(%v)\n", kv.me, kv.gid, m.CommandIndex)
+										default:
+											DEBUG(dLog, "S%d G%d do ret not write S%d G%d shard(%v) num(%v) kvs(%v)\n", kv.me, kv.gid, O.Ser_index, O.Gro_index, O.Shard, O.Num, Kvs)
+											DEBUG(dLog, "S%d G%d can not write getkvs in(%v)\n", kv.me, kv.gid, m.CommandIndex)
+										}
 									}
 								}
 
@@ -1269,6 +1295,8 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 							kv.KVS = S.Kvs
 							kv.config = S.Config
 							kv.KVSMAP = S.KVSMAP
+							// kv.rpcindex = S.Rpcindex
+							Applyindex = kv.applyindex
 							DEBUG(dSnap, "S%d G%d recover by SnapShot update applyindex(%v) to %v the kvs is %v\n", kv.me, kv.gid, kv.applyindex, S.Apliedindex, kv.KVS)
 							kv.applyindex = S.Apliedindex
 							kv.mu.Unlock()
