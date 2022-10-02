@@ -88,7 +88,7 @@ func (ck *Clerk) Get(key string) string {
 	try_num := 3
 	// DEBUG(dClient, "C%d getkey(%v)\n", ck.cli_index, key)
 	for {
-		ck.config = ck.sm.Query(-1)
+		// ck.config = ck.sm.Query(-1)
 		shard := key2shard(key)
 		ck.cmd_index[shard]++
 		args.OIndex = ck.cmd_index[shard]
@@ -160,7 +160,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	try_num := 3
 
 	for {
-		ck.config = ck.sm.Query(-1)
+		// ck.config = ck.sm.Query(-1)
 		shard := key2shard(key)
 		gid := ck.config.Shards[shard]
 		ck.cmd_index[shard]++

@@ -467,6 +467,7 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 	// }
 
 	if args.The_num >= kv.config.Num {
+		DEBUG(dLog, "S%d G%d shard(%v) args.The_num(%v) >= kv.config.Num(%v)\n", kv.me, kv.gid, args.Shard, args.The_num, kv.config.Num)
 		newconfig := kv.mck.Query(-1)
 		kv.config = newconfig
 		go kv.AppendCON(oldconfig)
@@ -913,7 +914,7 @@ func (kv *ShardKV) CheckConfig() {
 	if kv.Now_Num != newconfig.Num {
 		if isLeader {
 			// DEBUG(dLog, "S%d G%d the config.num is %v != config1.num is %v\n", kv.me, kv.gid, kv.config.Num, newconfig.Num)
-			DEBUG(dLog, "S%d G%d the config(%v)\n", kv.me, kv.gid, kv.config)
+			// DEBUG(dLog, "S%d G%d the config(%v)\n", kv.me, kv.gid, kv.config)
 			DEBUG(dLog, "S%d G%d new config(%v)\n", kv.me, kv.gid, newconfig)
 		}
 		go kv.getallconfigs(configs)
