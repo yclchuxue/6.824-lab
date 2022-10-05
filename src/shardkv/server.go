@@ -466,12 +466,12 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 
 	// }
 
-	if args.The_num >= kv.config.Num {
-		DEBUG(dLog, "S%d G%d shard(%v) args.The_num(%v) >= kv.config.Num(%v)\n", kv.me, kv.gid, args.Shard, args.The_num, kv.config.Num)
-		newconfig := kv.mck.Query(-1)
-		kv.config = newconfig
-		go kv.AppendCON(oldconfig)
-	}
+	// if args.The_num >= kv.config.Num {
+	// 	DEBUG(dLog, "S%d G%d shard(%v) args.The_num(%v) >= kv.config.Num(%v)\n", kv.me, kv.gid, args.Shard, args.The_num, kv.config.Num)
+	// 	newconfig := kv.mck.Query(-1)
+	// 	kv.config = newconfig
+	// 	go kv.AppendCON(oldconfig)
+	// }
 
 	if kv.KVSMAP[args.Shard] < args.Num && kv.config.Num > args.Num {
 		reply.Err = ErrWrongGroup
