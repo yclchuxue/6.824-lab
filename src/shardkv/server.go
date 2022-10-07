@@ -66,22 +66,24 @@ type ShardKV struct {
 	CSM []map[int64]int64
 	CDM []map[int64]int64
 
-	CON map[int]shardctrler.Config
+	CON map[int]shardctrler.Config   //configs
+	ChanComd map[int]COMD            //管道getkvs的消息队列
+
 
 	applyindex int
 	// rpcindex   int
-	Now_Num    int
-	config     shardctrler.Config
-	KVSMAP     map[int]int
-	KVSGET 	   map[int]int
+	Now_Num int
+	config  shardctrler.Config
+	KVSMAP  map[int]int
+	KVSGET  map[int]int
 }
 
 type SnapShot struct {
-	Kvs         []map[string]string
-	Csm         []map[int64]int64
-	Cdm         []map[int64]int64
-	KVSMAP      map[int]int
-	Config      shardctrler.Config
+	Kvs    []map[string]string
+	Csm    []map[int64]int64
+	Cdm    []map[int64]int64
+	KVSMAP map[int]int
+	Config shardctrler.Config
 	// Rpcindex    int
 	Apliedindex int
 }
@@ -213,6 +215,8 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 						kv.mu.Unlock()
 						return
 					}
+				}else{
+					DEBUG(dLog, "S%d G%d index != out.index get %d != %d\n", kv.me, kv.gid, index, out.index)
 				}
 
 			case <-time.After(TIMEOUT * time.Microsecond):
@@ -339,6 +343,8 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 					// DEBUG(dLeader, "S%d G%d %v index(%v) applyindex(%v)  this cmd_index(%v) key(%v) value(%v) from(C%v)\n", kv.me, kv.gid, args.Op, index, out.index, args.OIndex, args.Key, args.Value, args.CIndex)
 					reply.Err = OK
 					return
+				}else{
+					DEBUG(dLog, "S%d G%d index != out.index pytappend %d != %d\n", kv.me, kv.gid, index, out.index)
 				}
 
 			case <-time.After(TIMEOUT * time.Microsecond):
@@ -381,24 +387,24 @@ func (kv *ShardKV) SendSnapShot() {
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 	S := SnapShot{
-		Kvs:         kv.KVS,
-		Csm:         kv.CSM,
-		Cdm:         kv.CDM,
-		KVSMAP:      kv.KVSMAP,
-		Config:      kv.config,
+		Kvs:    kv.KVS,
+		Csm:    kv.CSM,
+		Cdm:    kv.CDM,
+		KVSMAP: kv.KVSMAP,
+		Config: kv.config,
 		// Rpcindex:    kv.rpcindex,
 		Apliedindex: kv.applyindex,
 	}
 	e.Encode(S)
-	DEBUG(dSnap, "S%d G%d the size need to snap index%v\n", kv.me, kv.gid)
+	DEBUG(dSnap, "S%d G%d the size need to snap\n", kv.me, kv.gid)
 	data := w.Bytes()
 	kv.rf.Snapshot(S.Apliedindex, data)
 	X, num := kv.rf.RaftSize()
-	fmt.Println("S", kv.me, "num", num, "X", X)
+	fmt.Println("S", kv.me, "raftsize", num, "snap.lastindex.X", X)
 }
 
 func (kv *ShardKV) CheckSnap() {
-	kv.mu.Lock()
+	// kv.mu.Lock()
 
 	// DEBUG(dLog, "S%d G%d kvs is %v\n", kv.me, kv.gid, kv.KVS)
 	// DEBUG(dLog, "S%d G%d config is %v\n", kv.me, kv.gid, kv.config)
@@ -406,14 +412,14 @@ func (kv *ShardKV) CheckSnap() {
 
 	X, num := kv.rf.RaftSize()
 	DEBUG(dSnap, "S%d G%d the size is (%v) applidindex(%v) X(%v)\n", kv.me, kv.gid, num, kv.applyindex, X)
-	if num > int(float64(kv.maxraftstate)*0.8) {
+	if num >= int(float64(kv.maxraftstate)) {
 		if kv.applyindex == 0 || kv.applyindex <= X {
-			kv.mu.Unlock()
+			// kv.mu.Unlock()
 			return
 		}
 		kv.SendSnapShot()
 	}
-	kv.mu.Unlock()
+	// kv.mu.Unlock()
 }
 
 func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
@@ -505,6 +511,12 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 	for {
 		select {
 		case out := <-kv.getkvs:
+
+			con, ok := kv.ChanComd[index]
+			if !ok {
+				
+			}
+
 			DEBUG(dLeader, "S%d G%d read from get kvs me.shard(%v) index(%v) out.index(%v)\n", kv.me, kv.gid, args.Shard, index, out.index)
 			if index == out.index {
 
@@ -535,26 +547,26 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 					continue
 				}
 			}
-			// else{
-			// 	select {
-			// 		case kv.getkvs <- out:
-			// 			DEBUG(dLog, "S%d G%d write index in(%v) read wrong\n", kv.me, kv.gid, out.index)
-			// 		default:
-			// 			DEBUG(dLog, "S%d G%d can not write index in(%v) read wrong\n", kv.me, kv.gid, out.index)
-			// 		}
+		// else{
+		// 	select {
+		// 		case kv.getkvs <- out:
+		// 			DEBUG(dLog, "S%d G%d write index in(%v) read wrong\n", kv.me, kv.gid, out.index)
+		// 		default:
+		// 			DEBUG(dLog, "S%d G%d can not write index in(%v) read wrong\n", kv.me, kv.gid, out.index)
+		// 		}
+		// }
+
+		//超时可加入判断该请求是否过期
+
+		case <-time.After(10000 * time.Millisecond):
+			DEBUG(dLog2, "S%d G%d long time shard(%v) num(%v) from S%d G%d have not get the out\n", kv.me, kv.gid, args.Shard, args.Num, args.SIndex, args.GIndex)
+			// index, _, isLeader = kv.rf.Start(O)
+			// if !isLeader {
+			// 	reply.Err = ErrWrongLeader
+			// 	DEBUG(dLog, "S%d G%d this server is not leader\n", kv.me, kv.gid)
+			// 	return
 			// }
-
-			//超时可加入判断该请求是否过期
-
-			// case <-time.After(10000 * time.Millisecond):
-			// 	DEBUG(dLog2, "S%d G%d long time shard(%v) num(%v) from S%d G%d have not get the out\n", kv.me, kv.gid, args.Shard, args.Num, args.SIndex, args.GIndex)
-			// 	index, _, isLeader = kv.rf.Start(O)
-			// 	if !isLeader {
-			// 		reply.Err = ErrWrongLeader
-			// 		DEBUG(dLog, "S%d G%d this server is not leader\n", kv.me, kv.gid)
-			// 		return
-			// 	}
-			// 	continue
+			continue
 		}
 	}
 
@@ -583,6 +595,7 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 
 	_, isLeader := kv.rf.GetState()
 	if !isLeader {
+		DEBUG(dLog, "S%d G%d is not leader in SendToGetConfig\n", kv.me, kv.gid)
 		return
 	}
 
@@ -665,11 +678,17 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 				}
 				return
 			} else if kv.KVSMAP[shard] < num {
+				// if kv.KVSGET[num] == 1 {
+				// 	DEBUG(dLog, "S%d G%d wait shard(%d) last num(%d)\n", kv.me, kv.gid, shard, num)
+				// 	kv.mu.Unlock()
+				// 	time.Sleep(10*time.Microsecond)
+				// 	continue
+				// }else{
 				DEBUG(dLog, "S%d G%d shard(%v) The_num(%v) KVSMAP(%v) num from %v to %v\n", kv.me, kv.gid, shard, The_Num, kv.KVSMAP[shard], num, num-1)
 				num--
-			}else if kv.KVSMAP[shard] > num && 1 == 0{ // 
+				// }
+			} // 若该节点已请求num的kvs但暂时未收到，当发出后又收到
 
-			}
 			kv.mu.Unlock()
 		} else {
 			break
@@ -752,9 +771,9 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 						kv.StartOp(O)
 					}
 					return
-				} else if ok && 1 == 0{   // 处理args.shard != reply.shard的情况
+				} else if ok && 1 == 0 { // 处理args.shard != reply.shard的情况
 
-				}else if ok && reply.Err == ErrWrongGroup {
+				} else if ok && reply.Err == ErrWrongGroup {
 
 					// TNM[gid] = reply.The_num
 					KNM[gid] = reply.Kvs_num
@@ -940,7 +959,7 @@ func (kv *ShardKV) CheckConfig() {
 	for i, it := range newconfig.Shards {
 
 		if it == gid {
-			if kv.KVSMAP[i] != newconfig.Num && kv.KVSGET[newconfig.Num] == 0{ //&& kv.rpcindex != newconfig.Num
+			if kv.KVSMAP[i] != newconfig.Num && kv.KVSGET[newconfig.Num] == 0 { //&& kv.rpcindex != newconfig.Num
 				DEBUG(dLog, "S%d G%d add a shard(%d) num(%v)\n", kv.me, kv.gid, i, num)
 
 				go kv.SendToGetConfig(num, i)
@@ -1003,6 +1022,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	kv.getkvs = make(chan COMD)
 	kv.num_change = make(chan COMD)
 	kv.CON = make(map[int]shardctrler.Config)
+	kv.ChanComd = make(map[int]COMD)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 
 	// kv.KVS = []map[string]string
@@ -1039,7 +1059,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	var command Op
 
 	_, si := kv.rf.RaftSize()
-	DEBUG(dTest, "S%d G%d this server start now max(%v) sizeof(Op) is %v the raft size is %v\n", kv.me, kv.gid, int(float64(maxraftstate)*0.8), unsafe.Sizeof(command), si)
+	DEBUG(dTest, "S%d G%d this server start now max(%v) sizeof(Op) is %v the raft size is %v\n", kv.me, kv.gid, int(float64(maxraftstate)), unsafe.Sizeof(command), si)
 
 	go func() {
 		for {
@@ -1274,11 +1294,15 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 							// kv.applyindex = m.CommandIndex
 						}
 
-						kv.mu.Unlock()
-
 						if maxraftstate > 0 {
 							go kv.CheckSnap()
 						}
+
+						kv.mu.Unlock()
+
+						// if maxraftstate > 0 {
+						// 	go kv.CheckSnap()
+						// }
 
 					} else { //read snapshot
 						r := bytes.NewBuffer(m.Snapshot)
