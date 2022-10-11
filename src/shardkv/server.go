@@ -46,6 +46,7 @@ type COMD struct {
 type ShardKV struct {
 	mu           sync.Mutex
 	mu1          sync.Mutex
+	mu2			 sync.Mutex
 	me           int
 	rf           *raft.Raft
 	applyCh      chan raft.ApplyMsg
@@ -463,21 +464,25 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 	DEBUG(dLog2, "S%d G%d shard(%v) before lock 452 \n", kv.me, kv.gid, args.Shard)
 	var start time.Time
 	start = time.Now()
+	DEBUG(dLog, "S%d G%d try lock 424\n", kv.me, kv.gid)
 	kv.mu.Lock()
 	ti := time.Since(start).Milliseconds()
 	DEBUG(dLog2, "S%d G%d PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP %d\n", kv.me, kv.gid, ti)
-	DEBUG(dLog, "S%d G%d lock 424\n", kv.me, kv.gid)
+	DEBUG(dLog, "S%d G%d success lock 424\n", kv.me, kv.gid)
 
 	// if args.The_num == kv.config.Num {
 
 	// }
 
-	// if args.The_num >= kv.config.Num {
-	// 	DEBUG(dLog, "S%d G%d shard(%v) args.The_num(%v) >= kv.config.Num(%v)\n", kv.me, kv.gid, args.Shard, args.The_num, kv.config.Num)
-	// 	newconfig := kv.mck.Query(-1)
-	// 	kv.config = newconfig
-	// 	go kv.AppendCON(oldconfig)
-	// }
+	if args.The_num >= kv.config.Num {
+		DEBUG(dLog, "S%d G%d shard(%v) args.The_num(%v) >= kv.config.Num(%v)\n", kv.me, kv.gid, args.Shard, args.The_num, kv.config.Num)
+		start = time.Now()
+		newconfig := kv.mck.Query(-1)
+		ti := time.Since(start).Milliseconds()
+		DEBUG(dLog2, "S%d G%d Qurey -1 time is %d\n", kv.me, kv.gid, ti)
+		kv.config = newconfig
+		go kv.AppendCON(oldconfig)
+	}
 
 	if kv.KVSMAP[args.Shard] < args.Num && kv.config.Num > args.Num {
 		reply.Err = ErrWrongGroup
@@ -512,12 +517,25 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 		select {
 		case out := <-kv.getkvs:
 
-			con, ok := kv.ChanComd[index]
-			if !ok {
-				
+			DEBUG(dLeader, "S%d G%d read from get kvs me.shard(%v) index(%v) out.index(%v)\n", kv.me, kv.gid, args.Shard, index, out.index)
+			if index != out.index{
+				DEBUG(dLog, "S%d G%d chancomd add index(%d)\n", kv.me, kv.gid, out.index);
+				kv.mu2.Lock()
+				kv.ChanComd[out.index] = out;
+				kv.mu2.Unlock()
+				for{
+					kv.mu2.Lock()
+					con, ok := kv.ChanComd[index]
+					kv.mu2.Unlock()
+					DEBUG(dLog, "S%d G%d wait from ChanComd the index(%d)\n", kv.me, kv.gid, index);
+					if ok {
+						out = con
+						break;
+					}
+					time.Sleep(50 * time.Microsecond)
+				}
 			}
 
-			DEBUG(dLeader, "S%d G%d read from get kvs me.shard(%v) index(%v) out.index(%v)\n", kv.me, kv.gid, args.Shard, index, out.index)
 			if index == out.index {
 
 				if out.num >= args.Num {
@@ -939,6 +957,9 @@ func (kv *ShardKV) CheckConfig() {
 		go kv.getallconfigs(configs)
 		kv.KVSGET[newconfig.Num] = 0
 	}
+	// if newconfig.Num == kv.Now_Num {
+	// 	return
+	// }
 	// else if newconfig.Num == kv.rpcindex {
 	// 	DEBUG(dLog, "S%d G%d num is not change and had send rpc\n", kv.me, kv.gid)
 	// 	return
@@ -1031,6 +1052,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	kv.KVSGET = make(map[int]int)
 	kv.mu = sync.Mutex{}
 	kv.mu1 = sync.Mutex{}
+	kv.mu2 = sync.Mutex{}
 	kv.applyindex = 0
 	Applyindex := 0
 	// kv.rpcindex = 0
@@ -1090,8 +1112,9 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 						var start time.Time
 						start = time.Now()
 						_, isLeader := kv.rf.GetState()
+						DEBUG(dLog, "S%d G%d try lock 847\n", kv.me, kv.gid)
 						kv.mu.Lock()
-						DEBUG(dLog, "S%d G%d lock 847\n", kv.me, kv.gid)
+						DEBUG(dLog, "S%d G%d success lock 847\n", kv.me, kv.gid)
 						ti := time.Since(start).Milliseconds()
 						DEBUG(dLog2, "S%d G%d AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%d\n", kv.me, kv.gid, ti)
 
@@ -1295,7 +1318,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 						}
 
 						if maxraftstate > 0 {
-							go kv.CheckSnap()
+							kv.CheckSnap()
 						}
 
 						kv.mu.Unlock()
