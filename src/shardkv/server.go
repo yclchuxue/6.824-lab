@@ -74,6 +74,7 @@ type ShardKV struct {
 	applyindex int
 	// rpcindex   int
 	Now_Num int
+	check bool
 	config  shardctrler.Config
 	KVSMAP  map[int]int
 	KVSGET  map[int]int
@@ -101,7 +102,7 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 
 	kv.mu.Lock()
 	DEBUG(dLog, "S%d G%d lock 89\n", kv.me, kv.gid)
-	if kv.config.Num != kv.KVSMAP[args.Shard] || kv.config.Num != args.Num {
+	if kv.config.Num != kv.KVSMAP[args.Shard] || kv.config.Num != args.Num || !kv.check{
 		DEBUG(dLog, "S%d G%d not have this shard(%v) KVSMAP(%v) config.NUM(%v) args.Num(%v)\n", kv.me, kv.gid, args.Shard, kv.KVSMAP[args.Shard], kv.config.Num, args.Num)
 		reply.Err = ErrWrongGroup
 		kv.mu.Unlock()
@@ -251,7 +252,7 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 
 	kv.mu.Lock()
 	DEBUG(dLog, "S%d G%d lock in 234\n", kv.me, kv.gid)
-	if kv.config.Num != kv.KVSMAP[args.Shard] || kv.config.Num != args.Num {
+	if kv.config.Num != kv.KVSMAP[args.Shard] || kv.config.Num != args.Num || !kv.check{
 		DEBUG(dLog, "S%d G%d not have this shard(%v) KVSMAP(%v) config.NUM(%v) args.Num(%v)\n", kv.me, kv.gid, args.Shard, kv.KVSMAP[args.Shard], kv.config.Num, args.Num)
 		reply.Err = ErrWrongGroup
 		kv.mu.Unlock()
@@ -399,9 +400,9 @@ func (kv *ShardKV) SendSnapShot() {
 	e.Encode(S)
 	DEBUG(dSnap, "S%d G%d the size need to snap\n", kv.me, kv.gid)
 	data := w.Bytes()
-	kv.rf.Snapshot(S.Apliedindex, data)
-	X, num := kv.rf.RaftSize()
-	fmt.Println("S", kv.me, "raftsize", num, "snap.lastindex.X", X)
+	go kv.rf.Snapshot(S.Apliedindex, data)
+	// X, num := kv.rf.RaftSize()
+	// fmt.Println("S", kv.me, "raftsize", num, "snap.lastindex.X", X)
 }
 
 func (kv *ShardKV) CheckSnap() {
@@ -430,11 +431,13 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 	oldconfig := shardctrler.Config{}
 
 	if args.Num > 0 {
-		DEBUG(dLog2, "S%d G%d shard(%v) before lock 426\n", kv.me, kv.gid, args.Shard)
+		DEBUG(dLog2, "S%d G%d shard(%v) before mu1 lock 426\n", kv.me, kv.gid, args.Shard)
 		// start := time.Now()
 		kv.mu1.Lock()
+		DEBUG(dLog2, "S%d G%d shard(%v) mu1 lock 437\n", kv.me, kv.gid, args.Shard)
 		con, ice := kv.CON[args.Num]
 		kv.mu1.Unlock()
+		DEBUG(dLog2, "S%d G%d shard(%v) mu1 Unlock 440\n", kv.me, kv.gid, args.Shard)
 		if ice {
 			oldconfig = con
 		} else {
@@ -474,14 +477,23 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 
 	// }
 
+	// if args.The_num >= kv.config.Num {
+	// 	DEBUG(dLog, "S%d G%d shard(%v) args.The_num(%v) >= kv.config.Num(%v)\n", kv.me, kv.gid, args.Shard, args.The_num, kv.config.Num)
+	// 	kv.mu.Unlock()
+	// 	DEBUG(dLog, "S%d G%d Unlock 500\n", kv.me, kv.gid)
+	// 	start = time.Now()
+	// 	newconfig := kv.mck.Query(-1)
+	// 	ti := time.Since(start).Milliseconds()
+	// 	DEBUG(dLog2, "S%d G%d Qurey -1 time is %d\n", kv.me, kv.gid, ti)
+	// 	kv.mu.Lock()
+	// 	kv.config = newconfig
+	// 	go kv.AppendCON(oldconfig)
+	// }
+
 	if args.The_num >= kv.config.Num {
 		DEBUG(dLog, "S%d G%d shard(%v) args.The_num(%v) >= kv.config.Num(%v)\n", kv.me, kv.gid, args.Shard, args.The_num, kv.config.Num)
-		start = time.Now()
-		newconfig := kv.mck.Query(-1)
-		ti := time.Since(start).Milliseconds()
-		DEBUG(dLog2, "S%d G%d Qurey -1 time is %d\n", kv.me, kv.gid, ti)
-		kv.config = newconfig
-		go kv.AppendCON(oldconfig)
+		kv.check = false
+		go kv.CheckConfig()
 	}
 
 	if kv.KVSMAP[args.Shard] < args.Num && kv.config.Num > args.Num {
@@ -576,7 +588,7 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 
 		//超时可加入判断该请求是否过期
 
-		case <-time.After(10000 * time.Millisecond):
+		case <-time.After(1000 * time.Millisecond):
 			DEBUG(dLog2, "S%d G%d long time shard(%v) num(%v) from S%d G%d have not get the out\n", kv.me, kv.gid, args.Shard, args.Num, args.SIndex, args.GIndex)
 			// index, _, isLeader = kv.rf.Start(O)
 			// if !isLeader {
@@ -613,7 +625,7 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 
 	_, isLeader := kv.rf.GetState()
 	if !isLeader {
-		DEBUG(dLog, "S%d G%d is not leader in SendToGetConfig\n", kv.me, kv.gid)
+		DEBUG(dLog, "S%d G%d shard(%v) is not leader in SendToGetConfig\n", kv.me, kv.gid, shard)
 		return
 	}
 
@@ -669,7 +681,7 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 				Num:       The_Num,
 			}
 			_, _, Leader := kv.rf.Start(O)
-			DEBUG(dInfo, "S%d G%d Start shard(%v) OWNCON old num = 0 The_num is %v %v before\n", kv.me, kv.gid, shard, The_Num, Leader)
+			DEBUG(dInfo, "S%d G%d shard(%v) Start OWNCON old num = 0 The_num is %v %v before\n", kv.me, kv.gid, shard, The_Num, Leader)
 			if !Leader {
 				kv.StartOp(O)
 			}
@@ -689,8 +701,9 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 					Num:       The_Num,
 				}
 				kv.mu.Unlock()
+				DEBUG(dLog, "S%d G%d Unlock 719\n", kv.me, kv.gid)
 				_, _, Leader := kv.rf.Start(O)
-				DEBUG(dInfo, "S%d G%d Start shard(%v) num(%v) == KVSMAP[%v] %v before\n", kv.me, kv.gid, shard, num, shard, Leader)
+				DEBUG(dInfo, "S%d G%d shard(%v) Start num(%v) == KVSMAP[%v] %v before\n", kv.me, kv.gid, shard, num, shard, Leader)
 				if !Leader {
 					kv.StartOp(O)
 				}
@@ -708,6 +721,7 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 			} // 若该节点已请求num的kvs但暂时未收到，当发出后又收到
 
 			kv.mu.Unlock()
+			DEBUG(dLog, "S%d G%d Unlock 739\n", kv.me, kv.gid)
 		} else {
 			break
 		}
@@ -731,12 +745,14 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 				kv.mu.Lock()
 				DEBUG(dLog, "S%d G%d lock 583\n", kv.me, kv.gid)
 				if kv.config.Num != The_Num {
-					DEBUG(dLog, "S%d G%d kv.config.num(%v) != The_num(%v)\n", kv.me, kv.gid, kv.config.Num, The_Num)
+					DEBUG(dLog, "S%d G%d shard(%v) kv.config.num(%v) != The_num(%v)\n", kv.me, kv.gid, shard, kv.config.Num, The_Num)
 					kv.mu.Unlock()
+					DEBUG(dLog, "S%d G%d Unlock 765\n", kv.me, kv.gid)
 					return
 				}
 
 				kv.mu.Unlock()
+				DEBUG(dLog, "S%d G%d Unlock 770\n", kv.me, kv.gid)
 
 				srv := kv.make_end(servers[si])
 				var reply GetConfigReply
@@ -748,10 +764,12 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 				if kv.config.Num != The_Num {
 					DEBUG(dLog, "S%d G%d shard(%v) kv.config.num(%v) != The_num(%v)\n", kv.me, kv.gid, shard, kv.config.Num, The_Num)
 					kv.mu.Unlock()
+					DEBUG(dLog, "S%d G%d Unlock 782\n", kv.me, kv.gid)
 					return
 				}
 
 				kv.mu.Unlock()
+				DEBUG(dLog, "S%d G%d Unlock 787\n", kv.me, kv.gid)
 
 				if ok {
 					try_num = 3
@@ -846,6 +864,7 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 									Num:       The_Num,
 								}
 								kv.mu.Unlock()
+								DEBUG(dLog, "S%d G%d Unlock 882\n", kv.me, kv.gid)
 								_, _, Leader := kv.rf.Start(O)
 								DEBUG(dInfo, "S%d G%d Start shard(%v) num(%v) == KVSMAP[%v](%v) %v after\n", kv.me, kv.gid, shard, num, shard, kv.KVSMAP[shard], Leader)
 								if !Leader {
@@ -857,6 +876,7 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 								num--
 							}
 							kv.mu.Unlock()
+							DEBUG(dLog, "S%d G%d Unlock 894\n", kv.me, kv.gid)
 						} else {
 							DEBUG(dLog2, "S%d G%d in KNM shard(%v) num(%v) gid(%v) KNM(%v)\n", kv.me, kv.gid, shard, num, gid, KNM)
 
@@ -888,15 +908,16 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 					if si == len(servers) {
 						si = 0
 					}
+					
 				} else if !ok || reply.Err == ErrTimeOut {
 					DEBUG(dLog, "S%d G%d the TIMEOUT\n", kv.me, kv.gid)
 					if try_num > 0 {
 						try_num--
 					} else {
 						si++
-						if si == len(servers) {
-							si = 0
-						}
+						// if si == len(servers) {
+						// 	si = 0
+						// }
 					}
 				}
 
@@ -924,7 +945,9 @@ func (kv *ShardKV) AppendCON(config shardctrler.Config) {
 		kv.mu1.Lock()
 		_, ok := kv.CON[num]
 		if !ok {
+			kv.mu1.Unlock()
 			newconfig := kv.mck.Query(num)
+			kv.mu1.Lock()
 			kv.CON[num] = newconfig
 		}
 		kv.mu1.Unlock()
@@ -957,17 +980,20 @@ func (kv *ShardKV) CheckConfig() {
 		go kv.getallconfigs(configs)
 		kv.KVSGET[newconfig.Num] = 0
 	}
-	// if newconfig.Num == kv.Now_Num {
+	// if newconfig.Num == kv.Now_Num && (kv.KVSGET[newconfig.Num] == 1 || !isLeader){
 	// 	return
 	// }
+
 	// else if newconfig.Num == kv.rpcindex {
 	// 	DEBUG(dLog, "S%d G%d num is not change and had send rpc\n", kv.me, kv.gid)
 	// 	return
 	// }
 
 	kv.mu.Lock()
+	// DEBUG(dLog, "S%d G%d newconfig.num and kv.config.num and kv.now_num is %v %v %v\n", kv.me, kv.gid, newconfig.Num, kv.config.Num, kv.Now_Num)
 	DEBUG(dLog, "S%d G%d lock 713 %v\n", kv.me, kv.gid, isLeader)
 	kv.config = newconfig
+	kv.check = true
 	num := kv.config.Num
 	kv.Now_Num = num
 	gid := kv.gid
@@ -990,6 +1016,7 @@ func (kv *ShardKV) CheckConfig() {
 	kv.KVSGET[newconfig.Num] = 1
 	// kv.rpcindex = newconfig.Num
 	kv.mu.Unlock()
+	DEBUG(dLog, "S%d G%d Unlock 1036\n", kv.me, kv.gid)
 }
 
 //
@@ -1058,6 +1085,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	// kv.rpcindex = 0
 	kv.config = kv.mck.Query(-1)
 	kv.Now_Num = kv.config.Num
+	kv.check = false
 	kv.CON[kv.config.Num] = kv.config
 	for i := range kv.config.Shards {
 		kv.KVSMAP[i] = 0
@@ -1322,6 +1350,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 						}
 
 						kv.mu.Unlock()
+						DEBUG(dLog, "S%d G%d Unlock 1369\n", kv.me, kv.gid)
 
 						// if maxraftstate > 0 {
 						// 	go kv.CheckSnap()
@@ -1336,19 +1365,21 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 						DEBUG(dLog, "S%d G%d lock 1029\n", kv.me, kv.gid)
 						if d.Decode(&S) != nil {
 							kv.mu.Unlock()
+							DEBUG(dLog, "S%d G%d Unlock 1384\n", kv.me, kv.gid)
 							DEBUG(dSnap, "S%d G%d labgob fail\n", kv.me, kv.gid)
 						} else {
 							kv.CDM = S.Cdm
 							kv.CSM = S.Csm
 							kv.KVS = S.Kvs
-							kv.config = S.Config
+							// kv.config = S.Config
 							kv.KVSMAP = S.KVSMAP
 							// kv.rpcindex = S.Rpcindex
+							kv.check = false
 							Applyindex = kv.applyindex
 							DEBUG(dSnap, "S%d G%d recover by SnapShot update applyindex(%v) to %v the kvs is %v\n", kv.me, kv.gid, kv.applyindex, S.Apliedindex, kv.KVS)
 							kv.applyindex = S.Apliedindex
 							kv.mu.Unlock()
-
+							DEBUG(dLog, "S%d G%d Unlock 1397\n", kv.me, kv.gid)
 							go kv.CheckConfig()
 						}
 
