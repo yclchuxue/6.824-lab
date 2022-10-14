@@ -29,5 +29,8 @@ KVSMAP【8】 = 4， 若 num = 5 时 shard 8 的 kvs 而config更新，num = 6�
 ## 快照
 当 server 的 config 、KVSMAP 、manageshards 更新后， 如果这些不存入快照，则导致 manageshards 等数据会超前 KVS 等数据，会导致一些错误。 所以需要将这些信息也存入快照中。同时恢复时可以大幅度减少获取 config 等信息的时间。
 
+订正上条，首先在 shardkv 中去掉了 manageshards[shard] （是否开启该分片的服务）的设定，通过其他已有数据的组合替代，减少结构体大小，同时修正将 config 加入快照的方式，若 config 到 8 且发起 
+SendGetKvs 操作并返回，会检查 kv.config 和 The_num（发起请求时的 kv.config.num）, 检查这条是否有必要写入（若不相等，即 config 更新， kv.config > The_Num， 但我的判断条件为 ！= 而不是 > ）则不需要写入。但 config 为 7 时快照，config 8 发起请求，收到快照后修改 config 到 7 ，读取快照后则导致 kv.config.num != The_Num 发生，则导致此条 kvs 不被写入，当 config 再次更新到 8 时则 kv.KVSGET[num](表示 config.num 是否已发送过 SendGetKvs) 表示已经发送过 SendGetKvs 请求, 则不会再次发送，导致超过最大测试时间。
+
 ## 管道读取
 按道理管会根据谁先调用读，谁后调用读来排队读取数据，但由于start的read 管道之间的时间内会发送误差，导致start和read的顺序打乱。
