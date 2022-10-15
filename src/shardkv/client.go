@@ -119,9 +119,9 @@ func (ck *Clerk) Get(key string) string {
 					if si == len(servers) {
 						si = 0
 					}
-					time.Sleep(250 * time.Millisecond)
+					time.Sleep(100 * time.Millisecond)
 				}else if !ok || reply.Err == ErrTimeOut{
-					time.Sleep(250 * time.Millisecond)
+					time.Sleep(100 * time.Millisecond)
 					DEBUG(dClient, "C%d the timeout\n", ck.cli_index)
 					if try_num > 0{
 						try_num--
@@ -190,9 +190,9 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 					if si == len(servers) {
 						si = 0
 					}
-					time.Sleep(250 * time.Millisecond)
+					time.Sleep(100 * time.Millisecond)
 				}else if !ok || reply.Err == ErrTimeOut{
-					time.Sleep(250 * time.Millisecond)
+					time.Sleep(100 * time.Millisecond)
 					DEBUG(dClient, "C%d the TIMEOUT\n", ck.cli_index)
 					if try_num > 0{
 						try_num--
