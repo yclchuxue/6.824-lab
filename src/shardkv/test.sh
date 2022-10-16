@@ -2,8 +2,8 @@
 
 # python3 ./dslogs.py  out.log -c 5
 
-python3 ./dstest.py TestStaticShards \
-                    -r -p6 -n1000
+python3 ./dstest.py TestUnreliable1 \
+                     -p1 -n100
 
 
 # TestStaticShards
@@ -19,3 +19,8 @@ python3 ./dstest.py TestStaticShards \
 # TestChallenge1Delete
 # TestChallenge2Unaffected
 # TestChallenge2Partial
+
+
+# scp -r 6.824-lab/ root@120.46.192.114:/home/yang/
+
+# ssh root@120.46.192.114
