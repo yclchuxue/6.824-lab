@@ -432,7 +432,7 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 
 	if args.Num > 0 {
 		DEBUG(dLog2, "S%d G%d shard(%v) before mu1 lock 426\n", kv.me, kv.gid, args.Shard)
-		// start := time.Now()
+		start := time.Now()
 		kv.mu1.Lock()
 		DEBUG(dLog2, "S%d G%d shard(%v) mu1 lock 437\n", kv.me, kv.gid, args.Shard)
 		con, ice := kv.CON[args.Num]
@@ -444,8 +444,8 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 			oldconfig = kv.mck.Query(args.Num)
 			go kv.AppendCON(oldconfig)
 		}
-		// ti := time.Since(start).Milliseconds()
-		// DEBUG(dLog2, "S%d G%d shard(%v) after lock 426 ti(%v)\n", kv.me, kv.gid, args.Shard, ti)
+		ti := time.Since(start).Milliseconds()
+		DEBUG(dLog2, "S%d G%d shard(%v) after lock 426 ti(%v)\n", kv.me, kv.gid, args.Shard, ti)
 	} else {
 		oldconfig = shardctrler.Config{}
 	}
@@ -588,7 +588,7 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 
 		//超时可加入判断该请求是否过期
 
-		case <-time.After(1000 * time.Millisecond):
+		case <-time.After(10000 * time.Millisecond):
 			DEBUG(dLog2, "S%d G%d long time shard(%v) num(%v) from S%d G%d have not get the out\n", kv.me, kv.gid, args.Shard, args.Num, args.SIndex, args.GIndex)
 			// index, _, isLeader = kv.rf.Start(O)
 			// if !isLeader {
@@ -596,7 +596,9 @@ func (kv *ShardKV) GetConfig(args *GetConfigArgs, reply *GetConfigReply) {
 			// 	DEBUG(dLog, "S%d G%d this server is not leader\n", kv.me, kv.gid)
 			// 	return
 			// }
-			continue
+			reply.Err = ErrTimeOut
+			return
+			// continue
 		}
 	}
 
@@ -623,11 +625,11 @@ func (kv *ShardKV) StartOp(O Op) {
 
 func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 
-	_, isLeader := kv.rf.GetState()
-	if !isLeader {
-		DEBUG(dLog, "S%d G%d shard(%v) is not leader in SendToGetConfig\n", kv.me, kv.gid, shard)
-		return
-	}
+	// _, isLeader := kv.rf.GetState()
+	// if !isLeader {
+	// 	DEBUG(dLog, "S%d G%d shard(%v) is not leader in SendToGetConfig\n", kv.me, kv.gid, shard)
+	// 	return
+	// }
 
 	// var start time.Time
 	// start = time.Now()
@@ -645,7 +647,7 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 	oldconfig := shardctrler.Config{}
 	The_Num := num
 	num--
-
+	DEBUG(dLog, "S%d G%d shard(%v) before mu1 lock 650\n", kv.me, kv.gid, shard)
 	kv.mu1.Lock()
 	con, ice := kv.CON[num]
 	kv.mu1.Unlock()
@@ -655,7 +657,7 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 		oldconfig = kv.mck.Query(num)
 		go kv.AppendCON(oldconfig)
 	}
-
+	DEBUG(dLog, "S%d G%d shard(%v) before mu1 lock 660\n", kv.me, kv.gid, shard)
 	for {
 		kv.mu1.Lock()
 		con, ice := kv.CON[num]
@@ -687,7 +689,7 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 			}
 			return
 		}
-		// DEBUG(dLog, "S%d G%d oldconfig.Shard[%v](%v)\n", kv.me, kv.gid, shard, oldconfig.Shards[shard])
+		DEBUG(dLog, "S%d G%d oldconfig.Shard[%v](%v)\n", kv.me, kv.gid, shard, oldconfig.Shards[shard])
 		if oldconfig.Shards[shard] == kv.gid {
 			kv.mu.Lock()
 			DEBUG(dLog, "S%d G%d lock 546\n", kv.me, kv.gid)
@@ -730,12 +732,12 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 	// TNM := make(map[int]int)
 	KNM := make(map[int]int)
 
-	try_num := 3
+	// try_num := 3
 	for {
 
 		args.Num = num
 		gid := oldconfig.Shards[shard]
-		// DEBUG(dLog, "S%d G%d shard(%d) num(%d) the oldconfig is %v\n", kv.me, kv.gid, shard, num, oldconfig)
+		DEBUG(dLog, "S%d G%d shard(%d) num(%d) the oldconfig is %v\n", kv.me, kv.gid, shard, num, oldconfig)
 		if servers, ok := oldconfig.Groups[gid]; ok {
 
 			// DEBUG(dLog, "S%d G%d need send to get shard %v num is %d\n", kv.me, kv.gid, shard, num)
@@ -771,9 +773,9 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 				kv.mu.Unlock()
 				DEBUG(dLog, "S%d G%d Unlock 787\n", kv.me, kv.gid)
 
-				if ok {
-					try_num = 3
-				}
+				// if ok {
+				// 	try_num = 3
+				// }
 				if ok && reply.Err == OK {
 					DEBUG(dLog, "S%d G%d success get shard%v kvs(%v)\n", kv.me, kv.gid, shard, reply.Kvs)
 					// kvs := make(map[string]string)
@@ -905,20 +907,20 @@ func (kv *ShardKV) SendToGetConfig(num int, shard int) {
 				} else if ok && reply.Err == ErrWrongLeader {
 					DEBUG(dLog, "S%d G%d the S%v is not leader\n", kv.me, si, kv.gid)
 					si++
-					if si == len(servers) {
-						si = 0
-					}
+					// if si == len(servers) {
+					// 	si = 0
+					// }
 					
 				} else if !ok || reply.Err == ErrTimeOut {
 					DEBUG(dLog, "S%d G%d the TIMEOUT\n", kv.me, kv.gid)
-					if try_num > 0 {
-						try_num--
-					} else {
-						si++
+					// if try_num > 0 {
+					// 	try_num--
+					// } else {
+					si++
 						// if si == len(servers) {
 						// 	si = 0
 						// }
-					}
+					// }
 				}
 
 			}
